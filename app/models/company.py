@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Float, DateTime, Boolean, String, ARRAY, VARCHAR
+from sqlalchemy import Column, Integer, Boolean, String
 
 from app.models.base import Base
 
@@ -10,6 +10,6 @@ class Company(Base):
     name = Column(String, unique=False, nullable=False)  # Company name
     ticker = Column(String, unique=False, nullable=False)
     country = Column(String, nullable=False)
-    sector = Column(String)
-    industry = Column(String)
+    sector_id = Column(Integer)
+    industry_id = Column(Integer)
     isin_telegram = Column(Boolean, nullable=False)
