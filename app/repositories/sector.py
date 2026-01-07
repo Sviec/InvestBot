@@ -15,13 +15,10 @@ class SectorRepository(BaseRepository[Sector]):
                 .order_by(Sector.name) \
                 .all()
 
-    def get_all_names_scalar(self) -> List[str]:
+    def get_all_names(self) -> List[str]:
         """Получить все секторы (только имена)"""
         with self._get_session() as db:
-            return db.query(Sector.name) \
-                .order_by(Sector.name) \
-                .scalars() \
-                .all()
+            return db.scalars(db.query(Sector.name).order_by(Sector.name)).all()
 
     def get_by_name(self, name: str) -> Optional[Sector]:
         """Найти сектор по имени"""

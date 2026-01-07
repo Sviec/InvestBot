@@ -11,6 +11,9 @@ class Ticker:
         self.ind = yf.Ticker(ind.upper())
         self.info = self.ind.info
 
+    def __str__(self):
+        return self.ind.ticker
+
     def get_info(self):
         info = ""
         if 'country' in self.info and self.info['country'] is not None:
@@ -62,8 +65,6 @@ class Ticker:
     def get_price(self):
         return self.info['currentPrice']
 
-    def get_ticker(self):
-        return self.ind
 
     def set_ticker(self, new_ind):
         self.ind = yf.Ticker(new_ind.upper())

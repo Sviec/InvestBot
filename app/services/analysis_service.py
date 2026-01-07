@@ -1,4 +1,8 @@
-from app.data.models.ticker import Ticker
+from app.utils.ticker import Ticker
+
+
+async def get_ticker(ticker: str) -> Ticker:
+    return Ticker(ticker)
 
 
 async def get_sector_analysis(sector: str) -> str:
@@ -8,3 +12,4 @@ async def get_sector_analysis(sector: str) -> str:
 async def get_multipliers(ticker: Ticker, analysis_type: str) -> str:
     ticker.get_multiplier()
     return f"{analysis_type.capitalize()} анализ компании {ticker}:\n- Показатели хорошие"
+

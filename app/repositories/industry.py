@@ -19,10 +19,7 @@ class IndustryRepository(BaseRepository[Industry]):
     def get_all_names(self) -> List[str]:
         """Получить все отрасли (только имена)"""
         with self._get_session() as db:
-            return db.query(Industry.name) \
-                .order_by(Industry.name) \
-                .scalars() \
-                .all()
+            return db.scalars(db.query(Industry.name).order_by(Industry.name)).all()
 
     def get_by_name(self, name: str) -> Optional[Industry]:
         """Найти отрасль по имени"""

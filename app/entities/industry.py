@@ -3,7 +3,7 @@ import yfinance as yf
 
 class Industry:
     def __init__(self, industry: str):
-        self.__industry = yf.Industry(industry)
+        self.__industry = yf.Industry(industry.lower())
 
     def get_name(self) -> str:
         return self.__industry.name

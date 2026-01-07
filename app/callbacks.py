@@ -6,11 +6,11 @@ class BaseCallback(CallbackData, prefix="base"):
     path: str
 
     def get_back_button(self):
-        items = self.path.split('-')
+        items = self.path.split('%')
         if len(items[:-1]) <= 1:
             back_callback = MainMenuCallback.create(path="main_menu")
         else:
-            back_path = '-'.join(items[:-1])
+            back_path = '%'.join(items[:-1])
             back_callback = type(self).create(path=back_path)
         return types.InlineKeyboardButton(
             text="Назад",

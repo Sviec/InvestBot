@@ -3,7 +3,7 @@ import yfinance as yf
 
 class Sector:
     def __init__(self, sector: str):
-        self.__sector = yf.Sector(sector)
+        self.__sector = yf.Sector(sector.lower())
 
     def get_name(self):
         return self.__sector.name
