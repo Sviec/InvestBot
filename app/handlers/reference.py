@@ -1,7 +1,7 @@
 from aiogram import Router, F, types
 from aiogram.fsm.state import StatesGroup, State
 
-from app.callbacks import ReferenceCallback
+from callbacks import ReferenceCallback
 from app.keyboards.make_markup import build_markup
 from app.utils.navigation import get_path
 

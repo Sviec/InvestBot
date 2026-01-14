@@ -1,3 +1,4 @@
+from app.repositories.company import CompanyRepository
 from app.repositories.sector import SectorRepository
 from app.repositories.industry import IndustryRepository
 
@@ -7,7 +8,7 @@ class Repositories:
     def __init__(self):
         # self.favourites = FavouritesRepository()
         # self.user = UserRepository()
-        # self.company = CompanyRepository()
+        self.company = CompanyRepository()
         self.sector = SectorRepository()
         self.industry = IndustryRepository()
 

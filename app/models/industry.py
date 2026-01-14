@@ -9,3 +9,4 @@ class Industry(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String, unique=True, nullable=False)
     sector_id = Column(Integer, nullable=False)
+    key = Column(String, unique=True, nullable=False)

@@ -1,9 +1,9 @@
-from typing import List
+from typing import List, Dict
 
 from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from app.callbacks import AnalysisCallback, ProfileCallback, ReferenceCallback, ForecastCallback
+from callbacks import AnalysisCallback, ProfileCallback, ReferenceCallback, ForecastCallback
 
 
 def main_menu():
@@ -48,15 +48,15 @@ def build_markup(callback_data: CallbackData,
 
 
 def build_dynamic_markup(callback_data: CallbackData,
-                         items: List[str],
+                         items: Dict[int, str],
                          suffix: str,
                          *sizes) -> InlineKeyboardBuilder:
     kb = InlineKeyboardBuilder()
-    for button in items:
+    for i, text in items.items():
         kb.add(InlineKeyboardButton(
-            text=button,
+            text=text,
             callback_data=type(callback_data).create(
-                path=callback_data.path + f"%{button}#{suffix}",
+                path=callback_data.path + f"%{i}#{suffix}",
             ).pack(),
         ))
     kb.add(callback_data.get_back_button())

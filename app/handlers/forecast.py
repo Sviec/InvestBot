@@ -1,7 +1,7 @@
 from aiogram import Router, types, F
 from aiogram.fsm.state import StatesGroup, State
 
-from app.callbacks import ForecastCallback
+from callbacks import ForecastCallback
 from app.keyboards.make_markup import build_markup
 from app.utils.navigation import get_path
 

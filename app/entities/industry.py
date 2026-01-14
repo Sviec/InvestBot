@@ -8,13 +8,16 @@ class Industry:
     def get_name(self) -> str:
         return self.__industry.name
 
+
     def get_sector_name(self) -> str:
         return self.__industry.sector_name
 
     def get_overview(self) -> str:
         overview = self.__industry.overview
+        print(self.__industry)
+        print(overview)
         text = f"""
-            Сектор: {self.__industry.name}\n
+            Отрасль: {self.__industry.name}\n
             {overview['description']}\n
             Количество компаний: {overview['companies_count']}\n
             Рыночная капитализация: {overview['market_cap']}\n

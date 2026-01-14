@@ -43,8 +43,6 @@ class ProfileCallback(BaseCallback, prefix="profile"):
 
 
 class ReferenceCallback(BaseCallback, prefix="reference"):
-    path: str
-
     @staticmethod
     def create(path: str) -> 'ReferenceCallback':
         return ReferenceCallback(path=path)
