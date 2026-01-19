@@ -1,6 +1,8 @@
 from aiogram import types
 from aiogram.filters.callback_data import CallbackData
 
+from app.entities.company import Company
+
 
 class BaseCallback(CallbackData, prefix="base"):
     path: str
@@ -27,7 +29,28 @@ class MainMenuCallback(BaseCallback, prefix="main_menu"):
 class AnalysisCallback(BaseCallback, prefix="analysis"):
     @staticmethod
     def create(path: str) -> 'AnalysisCallback':
+        print(path)
         return AnalysisCallback(path=path)
+
+
+class CompanyCallback(BaseCallback, prefix="company"):
+
+    def get_back_button(self):
+        items = self.path.split('%')
+        if len(items[:-1]) <= 1:
+            back_callback = AnalysisCallback.create(path="analysis%company")
+        else:
+            back_path = '%'.join(items[:-1])
+            back_callback = type(self).create(path=back_path)
+        return types.InlineKeyboardButton(
+            text="Назад",
+            callback_data=back_callback.pack()
+        )
+
+    @staticmethod
+    def create(path: str) -> 'CompanyCallback':
+        print(path)
+        return CompanyCallback(path=path)
 
 
 class ForecastCallback(BaseCallback, prefix="forecast"):

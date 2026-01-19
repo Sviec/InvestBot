@@ -42,16 +42,22 @@ class Company:
             temp_text += f'{dividends.index[-i_payment]} - {dividends.values[-i_payment]}\n'
         return temp_text
 
-    def get_sustainability(self) -> str:
-        sustainability = self.ind.sustainability
-        if sustainability is None:
-            return 'По этой компании нет данных'
-        result_text = f"Total ESG Risk score: {sustainability.loc['totalEsg']['Value']}\n" \
-                      f"Environment Risk Score: {sustainability.loc['environmentScore']['Value']}\n" \
-                      f"Social Risk Score: {sustainability.loc['socialScore']['Value']}\n" \
-                      f"Governance Risk Score: {sustainability.loc['governanceScore']['Value']}\n" \
-                      f"Controversy Level: {sustainability.loc['highestControversy']['Value']}"
-        return result_text
+    # def get_sustainability(self) -> str:
+    #     sustainability = self.ind.sustainability
+    #     if sustainability is None:
+    #         return 'По этой компании нет данных'
+    #     result_text = ""
+    #     if 'totalEsg' in sustainability:
+    #         result_text += f"Total ESG Risk score: {sustainability.loc['totalEsg']['Value']}\n"
+    #     if 'environmentScore' in sustainability:
+    #         result_text += f"Environment Risk Score: {sustainability.loc['environmentScore']['Value']}\n"
+    #     if 'socialScore' in sustainability:
+    #         result_text += f"Social Risk Score: {sustainability.loc['socialScore']['Value']}\n"
+    #     if 'governanceScore' in sustainability:
+    #         result_text += f"Governance Risk Score: {sustainability.loc['governanceScore']['Value']}\n"
+    #     if 'highestControversy' in sustainability:
+    #         result_text += f"Controversy Level: {sustainability.loc['highestControversy']['Value']}"
+    #     return result_text
 
     def get_name(self):
         try:
@@ -80,7 +86,7 @@ class Company:
         ax.set_title(f'График акций компании {self.get_name()}')
         ax.set_xlabel('')
         ax.set_ylabel('')
-        plt.savefig("../users_files/fig.png")
+        plt.savefig("temp_data/user_files/report.png")
 
     def get_multiplier(self) -> str:
         multiplier_data = f"Основные мультипликаторы:\n"
@@ -110,56 +116,56 @@ class Company:
     def get_balance_sheet_year(self):
         self.get_report(
             pd.DataFrame(self.ind.balance_sheet),
-            '../../users_files/balance_sheet.png',
+            'temp_data/user_files/report.png',
             f'Балансовая отчетность компании {self.get_name()} по годам'
         )
 
     def get_balance_sheet_quarter(self):
         self.get_report(
             pd.DataFrame(self.ind.quarterly_balance_sheet),
-            '../../users_files/quarterly_balance_sheet.png',
+            'temp_data/user_files/report.png',
             f'Балансовая отчетность компании {self.get_name()} по кварталам'
         )
 
     def get_financials_year(self):
         self.get_report(
             pd.DataFrame(self.ind.financials),
-            '../../users_files/financials.png',
+            'temp_data/user_files/report.png',
             f'Финансовая отчетность компании {self.get_name()} по годам'
         )
 
     def get_financials_quarter(self):
         self.get_report(
             pd.DataFrame(self.ind.quarterly_financials),
-            '../../users_files/quarterly_financials.png',
+            'temp_data/user_files/report.png',
             f'Финансовая отчетность компании {self.get_name()} по кварталам'
         )
 
     def get_cash_flow_year(self):
         self.get_report(
             pd.DataFrame(self.ind.cashflow),
-            '../../users_files/cash_flow.png',
+            'temp_data/user_files/report.png',
             f'Денежный поток компании {self.get_name()} по годам'
         )
 
     def get_cash_flow_quarter(self):
         self.get_report(
             pd.DataFrame(self.ind.quarterly_cashflow),
-            '../../users_files/quarterly_cash_flow.png',
+            'temp_data/user_files/report.png',
             f'Денежный поток компании {self.get_name()} по кварталам'
         )
 
     def get_earnings_year(self):
         self.get_report(
             pd.DataFrame(self.ind.earnings),
-            '../../users_files/earnings.png',
+            'temp_data/user_files/report.png',
             f'Выручка компании {self.get_name()} по годам'
         )
 
     def get_earnings_quarter(self):
         self.get_report(
             pd.DataFrame(self.ind.quarterly_earnings),
-            '../../users_files/quarterly_earnings.png',
+            'temp_data/user_files/report.png',
             f'Выручка компании {self.get_name()} по кварталам'
         )
 
@@ -199,22 +205,29 @@ class Company:
 
     def get_major_holders(self):
         df = pd.DataFrame(self.ind.major_holders)
-        self.make_photo(df, '../../users_files/major_holders.png', f'Основные держатели акций компании {self.get_name()}')
+        self.make_photo(df, 'temp_data/user_files/report.png', f'Основные держатели акций компании {self.get_name()}')
 
     def get_institutional_holders(self):
         df = pd.DataFrame(self.ind.institutional_holders)
-        self.make_photo(df, '../../users_files/institutional_holders.png',
+        self.make_photo(df, 'temp_data/user_files/report.png',
                         f'Институциональные держатели акций компании {self.get_name()}')
 
     def get_news(self):
         news = "Последние новости (на английском):\n"
-        for elem in self.ind.news:
-            news += f"{elem['title']} - {elem['link']}\n"
+        if len(self.ind.news) == 0:
+            news += "Новостей нет\n"
+        else:
+            for elem in self.ind.news:
+                try:
+                    news += f"{elem['content']['title']} - {elem['content']['canonicalUrl']['url']}\n"
+                except:
+                    continue
         return news
 
     def get_analysis(self):
-        df = pd.DataFrame(self.ind.analyst_price_target)
-        self.make_photo(df, '../../users_files/analysis.png', f'Аналитика компании {self.get_name()}')
+        df = pd.DataFrame(self.ind.analyst_price_targets)
+        self.make_photo(df, 'temp_data/user_files/report.png', f'Аналитика компании {self.get_name()}')
+
 
 
 '''

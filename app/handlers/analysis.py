@@ -2,7 +2,6 @@ from aiogram import types, Router, F
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 
-from app.entities.company import Company
 from callbacks import AnalysisCallback
 from app.entities.industry import Industry
 from app.entities.sector import Sector
@@ -49,101 +48,6 @@ async def request_ticker_input(callback: types.CallbackQuery, callback_data: Ana
     await state.update_data(callback_path=callback_data.path)
     await state.set_state(AnalysisStates.waiting_ticker_input)
     await callback.answer()
-
-
-@router.message(AnalysisStates.waiting_ticker_input)
-async def process_ticker_input(message: types.Message, state: FSMContext):
-    state_data = await state.get_data()
-    ticker = Company(message.text.strip().upper())
-    await state.clear()
-
-    callback_path = state_data.get('callback_path', 'analysis-company')
-    callback_data = AnalysisCallback(path=callback_path)
-
-    data = get_path(callback_path)
-    kb = build_markup(callback_data, data)
-
-    await message.answer(
-        text=data['text'] + f"{ticker.get_name()}",
-        reply_markup=kb.as_markup()
-    )
-
-
-@router.callback_query(AnalysisCallback.filter(F.path.endswith("c_common_info")))
-async def common_info(callback: types.CallbackQuery, callback_data: AnalysisCallback):
-    data = get_path(callback_data.path)
-    kb = build_markup(callback_data, data)
-
-    await callback.message.edit_text(
-        data['text'],
-        reply_markup=kb.as_markup()
-    )
-
-
-@router.callback_query(AnalysisCallback.filter(F.path.endswith("c_graph")))
-async def graph(callback: types.CallbackQuery, callback_data: AnalysisCallback):
-    data = get_path(callback_data.path)
-    kb = build_markup(callback_data, data)
-
-    await callback.message.edit_text(
-        data['text'],
-        reply_markup=kb.as_markup()
-    )
-
-
-@router.callback_query(AnalysisCallback.filter(F.path.endswith("c_additional_info")))
-async def additional_info(callback: types.CallbackQuery, callback_data: AnalysisCallback):
-    data = get_path(callback_data.path)
-    kb = build_markup(callback_data, data)
-
-    await callback.message.edit_text(
-        data['text'],
-        reply_markup=kb.as_markup()
-    )
-
-
-@router.callback_query(AnalysisCallback.filter(F.path.endswith("c_fundamental_analysis")))
-async def fundamental_analysis(callback: types.CallbackQuery, callback_data: AnalysisCallback):
-    data = get_path(callback_data.path)
-    kb = build_markup(callback_data, data)
-
-    await callback.message.edit_text(
-        data['text'],
-        reply_markup=kb.as_markup()
-    )
-
-
-@router.callback_query(AnalysisCallback.filter(F.path.endswith("c_tech_indicators")))
-async def tech_indicators(callback: types.CallbackQuery, callback_data: AnalysisCallback):
-    data = get_path(callback_data.path)
-    kb = build_markup(callback_data, data)
-
-    await callback.message.edit_text(
-        data['text'],
-        reply_markup=kb.as_markup()
-    )
-
-
-@router.callback_query(AnalysisCallback.filter(F.path.endswith("c_multipliers")))
-async def multipliers(callback: types.CallbackQuery, callback_data: AnalysisCallback):
-    data = get_path(callback_data.path)
-    kb = build_markup(callback_data, data)
-
-    await callback.message.edit_text(
-        data['text'],
-        reply_markup=kb.as_markup()
-    )
-
-
-
-
-
-
-
-
-
-
-
 
 
 @router.callback_query(AnalysisCallback.filter(F.path.endswith("sector")))

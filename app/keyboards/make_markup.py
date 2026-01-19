@@ -47,6 +47,28 @@ def build_markup(callback_data: CallbackData,
     return kb
 
 
+def build_input_markup(callback_data: CallbackData,
+                       path: dict,
+                       item: str,
+                       suffix: str,
+                       *sizes) -> InlineKeyboardBuilder:
+    kb = InlineKeyboardBuilder()
+    for button, values in path['buttons'].items():
+        kb.add(InlineKeyboardButton(
+            text=values["button_text"],
+            callback_data=type(callback_data).create(
+                path=callback_data.path + f"%{item}#{suffix}" + f"%{button}",
+            ).pack(),
+            url=path["buttons"][button].get("url") if path["buttons"][button].get("url") else None
+        ))
+    kb.add(callback_data.get_back_button())
+    if sizes:
+        kb.adjust(*sizes)
+    else:
+        kb.adjust(1)
+    return kb
+
+
 def build_dynamic_markup(callback_data: CallbackData,
                          items: Dict[int, str],
                          suffix: str,
