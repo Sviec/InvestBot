@@ -3,12 +3,15 @@ from aiogram import types, Router, F
 from callbacks import MainMenuCallback
 from app.keyboards.make_markup import main_menu
 from aiogram.filters import Command
-
+from app.repositories import repositories
 router = Router()
 
 
 @router.message(Command("start"))
 async def cmd_start(message: types.Message):
+    user_repo = repositories.user
+    user_repo.create_user(message.from_user.id, message.from_user.username)
+
     await message.answer(
         'Привет!\n'
         'Я телеграм бот, созданный для помощи тебе в инвестициях\n'
@@ -19,9 +22,6 @@ async def cmd_start(message: types.Message):
         '- высылаю основные пункты из отчета компании\n'
         'Если вдруг тебя интересует вопрос, какие техиндикаторы или мультипликаторы я могу выслать,'
         'нажми кнопку "Справка". Там можно будет найти список доступных параметров и гайд по ним\n'
-        'Чтобы узнать какую-либо информацию по той или иной компании пришли мне ее тикер,'
-        'например ты хочешь посмотреть инфо про Apple, пришли мне AAPL. '
-        'Тикер должен быть полный',
     )
     await message.answer(
         "Выберите действие",

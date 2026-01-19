@@ -5,12 +5,36 @@ from aiogram.types import InputFile, FSInputFile
 from app.entities.company import Company
 from app.handlers.analysis import AnalysisStates
 from app.keyboards.make_markup import build_markup, build_input_markup
+from app.repositories import repositories
 from app.utils.navigation import get_path
 from callbacks import CompanyCallback
 
 router = Router()
 
 path = 'temp_data/user_files/report.png'
+
+
+async def send_photo(func, callback: types.CallbackQuery, callback_data: CompanyCallback):
+    ticker = callback_data.path.split('#tckr')[0].split('%')[-1]
+    company = Company(ticker)
+    func(company)
+    text = callback.message.text
+    kb = callback.message.reply_markup
+
+    await callback.message.delete()
+
+    photo_path = f"{path}"
+    photo = FSInputFile(photo_path)
+    await callback.message.answer_photo(
+        photo=photo,
+        reply_markup=None
+    )
+    await callback.message.answer(
+        text,
+        reply_markup=kb
+    )
+
+    await callback.answer()
 
 
 @router.message(AnalysisStates.waiting_ticker_input)
@@ -92,16 +116,6 @@ async def info_about(callback: types.CallbackQuery, callback_data: CompanyCallba
         company.get_info(),
         reply_markup=callback.message.reply_markup
     )
-
-
-# @router.callback_query(CompanyCallback.filter(F.path.endswith("i_sustain")))
-# async def info_about(callback: types.CallbackQuery, callback_data: CompanyCallback):
-#     ticker = callback_data.path.split('#tckr')[0].split('%')[-1]
-#     company = Company(ticker)
-#     await callback.message.edit_text(
-#         company.get_sustainability(),
-#         reply_markup=callback.message.reply_markup
-#     )
 
 
 @router.callback_query(CompanyCallback.filter(F.path.endswith("c_graph")))
@@ -262,52 +276,30 @@ async def tech_indicators(callback: types.CallbackQuery, callback_data: CompanyC
 
 @router.callback_query(CompanyCallback.filter(F.path.endswith("ti_ma")))
 async def tech_indicators_ma(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    ticker = callback_data.path.split('#tckr')[0].split('%')[-1]
-    company = Company(ticker)
-    await callback.message.edit_text(
-        'В разработке',
-        reply_markup=callback.message.reply_markup
-    )
+    await callback.answer(f"Данный функионал в разработке", show_alert=False)
 
 
 @router.callback_query(CompanyCallback.filter(F.path.endswith("ti_MACD")))
 async def tech_indicators_macd(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    ticker = callback_data.path.split('#tckr')[0].split('%')[-1]
-    company = Company(ticker)
-    await callback.message.edit_text(
-        'В разработке',
-        reply_markup=callback.message.reply_markup
-    )
+    await callback.answer(f"Данный функионал в разработке", show_alert=False)
+
 
 
 @router.callback_query(CompanyCallback.filter(F.path.endswith("ti_RSI")))
 async def tech_indicators_rsi(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    ticker = callback_data.path.split('#tckr')[0].split('%')[-1]
-    company = Company(ticker)
-    await callback.message.edit_text(
-        'В разработке',
-        reply_markup=callback.message.reply_markup
-    )
+    await callback.answer(f"Данный функионал в разработке", show_alert=False)
+
 
 
 @router.callback_query(CompanyCallback.filter(F.path.endswith("ti_momentum")))
 async def tech_indicators_momentum(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    ticker = callback_data.path.split('#tckr')[0].split('%')[-1]
-    company = Company(ticker)
-    await callback.message.edit_text(
-        'В разработке',
-        reply_markup=callback.message.reply_markup
-    )
+    await callback.answer(f"Данный функионал в разработке", show_alert=False)
+
 
 
 @router.callback_query(CompanyCallback.filter(F.path.endswith("ti_bal_vlm")))
 async def tech_indicators_vlm(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    ticker = callback_data.path.split('#tckr')[0].split('%')[-1]
-    company = Company(ticker)
-    await callback.message.edit_text(
-        'В разработке',
-        reply_markup=callback.message.reply_markup
-    )
+    await callback.answer(f"Данный функионал в разработке", show_alert=False)
 
 
 @router.callback_query(CompanyCallback.filter(F.path.endswith("c_multipliers")))
@@ -320,24 +312,57 @@ async def multipliers(callback: types.CallbackQuery, callback_data: CompanyCallb
     )
 
 
-async def send_photo(func, callback: types.CallbackQuery, callback_data: CompanyCallback):
-    ticker = callback_data.path.split('#tckr')[0].split('%')[-1]
-    company = Company(ticker)
-    func(company)
-    text = callback.message.text
-    kb = callback.message.reply_markup
+@router.callback_query(CompanyCallback.filter(F.path.endswith("add")))
+async def add_favourite(callback: types.CallbackQuery, callback_data: CompanyCallback):
+    ticker = callback_data.path.split('#tckr')[0].split('%')[-1].upper()
+    telegram_id = callback.from_user.id
 
-    await callback.message.delete()
+    try:
+        user = repositories.user.get_user_id_telegram_id(telegram_id)
+        if not user:
+            username = callback.from_user.username
+            repositories.user.create_user(telegram_id, username)
 
-    photo_path = f"{path}"
-    photo = FSInputFile(photo_path)
-    await callback.message.answer_photo(
-        photo=photo,
-        reply_markup=None
-    )
-    await callback.message.answer(
-        text,
-        reply_markup=kb
-    )
+        success = repositories.favourites.add_favourite(user, ticker)
 
-    await callback.answer()
+        if success:
+            await callback.answer(f"✅ {ticker} добавлен в избранное!", show_alert=False)
+        else:
+            await callback.answer("❌ Не удалось добавить в избранное", show_alert=True)
+        await callback.message.edit_text(
+            callback.message.text,
+            reply_markup=callback.message.reply_markup
+        )
+    except Exception as e:
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(CompanyCallback.filter(F.path.endswith("remove")))
+async def remove_favourite(callback: types.CallbackQuery, callback_data: CompanyCallback):
+    ticker = callback_data.path.split('#tckr')[0].split('%')[-1].upper()
+    telegram_id = callback.from_user.id
+
+    try:
+        user = repositories.user.get_user_id_telegram_id(telegram_id)
+        if not user:
+            username = callback.from_user.username
+            repositories.user.create_user(telegram_id, username)
+        company_id = repositories.company.get_id_by_ticker(ticker)
+        success = repositories.favourites.remove_favourite(user, company_id)
+
+        if success:
+            await callback.answer(f"✅ {ticker} удален из избранного!", show_alert=False)
+        else:
+            await callback.answer("❌ Не удалось удалить из избранного", show_alert=True)
+        await callback.message.edit_text(
+            callback.message.text,
+            reply_markup=callback.message.reply_markup
+        )
+    except Exception as e:
+        print(e)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(CompanyCallback.filter(F.path.endswith("buy")))
+async def buy(callback: types.CallbackQuery, callback_data: CompanyCallback):
+    await callback.answer(f"Покупка этого тикера пока недоступна", show_alert=False)

@@ -29,6 +29,13 @@ class CompanyRepository(BaseRepository[Company]):
                 .filter(Company.name == name) \
                 .first()
 
+    def get_id_by_ticker(self, ticker: str) -> int:
+        """Найти компанию по имени"""
+        with self._get_session() as db:
+            return int(db.query(Company.id)
+                       .filter(Company.ticker == ticker)
+                       .scalar())
+
     def get_name_by_id(self, company_id: int) -> str:
         """Найти компанию по id"""
         with self._get_session() as db:

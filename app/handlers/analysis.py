@@ -2,7 +2,7 @@ from aiogram import types, Router, F
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 
-from callbacks import AnalysisCallback
+from callbacks import AnalysisCallback, CompanyCallback
 from app.entities.industry import Industry
 from app.entities.sector import Sector
 from app.keyboards.make_markup import build_markup, input_markup, build_dynamic_markup
@@ -48,6 +48,18 @@ async def request_ticker_input(callback: types.CallbackQuery, callback_data: Ana
     await state.update_data(callback_path=callback_data.path)
     await state.set_state(AnalysisStates.waiting_ticker_input)
     await callback.answer()
+
+
+@router.callback_query(AnalysisCallback.filter(F.path.endswith("company_fav")))
+async def get_ticker_from_favourites(callback: types.CallbackQuery, callback_data: AnalysisCallback):
+    data = get_path(callback_data.path)
+    user_id = callback.from_user.id
+    tickers = repositories.favourites.get_all_tickers(user_id)
+    kb = build_dynamic_markup(CompanyCallback(path='company'), items=tickers, suffix='tckr')
+    await callback.message.edit_text(
+        data['text'],
+        reply_markup=kb.as_markup()
+    )
 
 
 @router.callback_query(AnalysisCallback.filter(F.path.endswith("sector")))
