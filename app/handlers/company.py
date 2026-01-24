@@ -168,10 +168,6 @@ async def additional_info_news(callback: types.CallbackQuery, callback_data: Com
     )
 
 
-@router.callback_query(CompanyCallback.filter(F.path.endswith("ai_anls")))
-async def additional_info_analysis(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    await send_photo(Company.get_analysis, callback, callback_data)
-
 
 @router.callback_query(CompanyCallback.filter(F.path.endswith("c_fa")))
 async def fundamental_analysis(callback: types.CallbackQuery, callback_data: CompanyCallback):
@@ -253,14 +249,14 @@ async def fundamental_analysis_earnings(callback: types.CallbackQuery, callback_
     )
 
 
-@router.callback_query(CompanyCallback.filter(F.path.endswith("earns_year")))
-async def earnings_year(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    await send_photo(Company.get_earnings_year, callback, callback_data)
+@router.callback_query(CompanyCallback.filter(F.path.endswith("inc_year")))
+async def income_report_year(callback: types.CallbackQuery, callback_data: CompanyCallback):
+    await send_photo(Company.get_income_report_year, callback, callback_data)
 
 
-@router.callback_query(CompanyCallback.filter(F.path.endswith("earns_quarter")))
-async def earnings_quarter(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    await send_photo(Company.get_earnings_quarter, callback, callback_data)
+@router.callback_query(CompanyCallback.filter(F.path.endswith("inc_quarter")))
+async def income_report_quarter(callback: types.CallbackQuery, callback_data: CompanyCallback):
+    await send_photo(Company.get_income_report_quarter, callback, callback_data)
 
 
 @router.callback_query(CompanyCallback.filter(F.path.endswith("c_ti")))

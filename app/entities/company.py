@@ -155,16 +155,16 @@ class Company:
             f'Денежный поток компании {self.get_name()} по кварталам'
         )
 
-    def get_earnings_year(self):
+    def get_income_report_year(self):
         self.get_report(
-            pd.DataFrame(self.ind.earnings),
+            pd.DataFrame(self.ind.income_stmt),
             'temp_data/user_files/report.png',
             f'Выручка компании {self.get_name()} по годам'
         )
 
-    def get_earnings_quarter(self):
+    def get_income_report_quarter(self):
         self.get_report(
-            pd.DataFrame(self.ind.quarterly_earnings),
+            pd.DataFrame(self.ind.quarterly_income_stmt),
             'temp_data/user_files/report.png',
             f'Выручка компании {self.get_name()} по кварталам'
         )
@@ -223,11 +223,6 @@ class Company:
                 except:
                     continue
         return news
-
-    def get_analysis(self):
-        df = pd.DataFrame(self.ind.analyst_price_targets)
-        self.make_photo(df, 'temp_data/user_files/report.png', f'Аналитика компании {self.get_name()}')
-
 
 
 '''

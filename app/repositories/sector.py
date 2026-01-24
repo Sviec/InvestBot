@@ -41,3 +41,9 @@ class SectorRepository(BaseRepository[Sector]):
                        .filter(Sector.id == sector_id)
                        .scalar())
 
+    def get_key_by_id(self, sector_id: int) -> str:
+        """Найти ключ сектора по id"""
+        with self._get_session() as db:
+            return str(db.query(Sector.key)
+                       .filter(Sector.id == sector_id)
+                       .scalar())

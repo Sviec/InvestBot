@@ -147,7 +147,7 @@ async def industry_top_performing_companies(callback: types.CallbackQuery, callb
 @router.callback_query(AnalysisCallback.filter(F.path.endswith("s_overview")))
 async def sector_overview(callback: types.CallbackQuery, callback_data: AnalysisCallback):
     sector_id = callback_data.path.split('#sctr')[0].split('%')[-1]
-    sector = Sector(repositories.sector.get_name_by_id(sector_id))
+    sector = Sector(repositories.sector.get_key_by_id(sector_id))
     await callback.message.edit_text(
         sector.get_overview(),
         reply_markup=callback.message.reply_markup
@@ -157,7 +157,7 @@ async def sector_overview(callback: types.CallbackQuery, callback_data: Analysis
 @router.callback_query(AnalysisCallback.filter(F.path.endswith("s_top_companies")))
 async def sector_top_companies(callback: types.CallbackQuery, callback_data: AnalysisCallback):
     sector_id = callback_data.path.split('#sctr')[0].split('%')[-1]
-    sector = Sector(repositories.sector.get_name_by_id(sector_id))
+    sector = Sector(repositories.sector.get_key_by_id(sector_id))
     await callback.message.edit_text(
         sector.get_top_companies(),
         reply_markup=callback.message.reply_markup
@@ -167,7 +167,7 @@ async def sector_top_companies(callback: types.CallbackQuery, callback_data: Ana
 @router.callback_query(AnalysisCallback.filter(F.path.endswith("s_top_etfs")))
 async def sector_top_etfs(callback: types.CallbackQuery, callback_data: AnalysisCallback):
     sector_id = callback_data.path.split('#sctr')[0].split('%')[-1]
-    sector = Sector(repositories.sector.get_name_by_id(sector_id))
+    sector = Sector(repositories.sector.get_key_by_id(sector_id))
     await callback.message.edit_text(
         sector.get_top_etfs(),
         reply_markup=callback.message.reply_markup
