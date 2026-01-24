@@ -1,6 +1,6 @@
 from aiogram import types, Router, F
 from aiogram.fsm.context import FSMContext
-from aiogram.types import InputFile, FSInputFile
+from aiogram.types import FSInputFile
 
 from app.entities.company import Company
 from app.handlers.analysis import AnalysisStates

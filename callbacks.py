@@ -1,15 +1,14 @@
 from aiogram import types
 from aiogram.filters.callback_data import CallbackData
 
-from app.entities.company import Company
-
 
 class BaseCallback(CallbackData, prefix="base"):
     path: str
 
     def get_back_button(self):
+        print(f'back={self.path}')
         items = self.path.split('%')
-        if len(items[:-1]) <= 1:
+        if len(items[:-1]) < 1:
             back_callback = MainMenuCallback.create(path="main_menu")
         else:
             back_path = '%'.join(items[:-1])
