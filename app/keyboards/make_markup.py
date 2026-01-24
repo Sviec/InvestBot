@@ -3,7 +3,7 @@ from typing import List, Dict
 from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from callbacks import AnalysisCallback, ProfileCallback, ReferenceCallback, ForecastCallback
+from callbacks import AnalysisCallback, ProfileCallback, ReferenceCallback, ForecastCallback, CompanyCallback
 
 
 def main_menu():
@@ -32,13 +32,23 @@ def build_markup(callback_data: CallbackData,
                  *sizes) -> InlineKeyboardBuilder:
     kb = InlineKeyboardBuilder()
     for button, values in path['buttons'].items():
-        kb.add(InlineKeyboardButton(
-            text=values["button_text"],
-            callback_data=type(callback_data).create(
-                path=callback_data.path + f"%{button}",
-            ).pack(),
-            url=path["buttons"][button].get("url") if path["buttons"][button].get("url") else None
-        ))
+        if isinstance(callback_data, CompanyCallback):
+            kb.add(InlineKeyboardButton(
+                text=values["button_text"],
+                callback_data=type(callback_data).create(
+                    come_through=callback_data.come_through,
+                    path=callback_data.path + f"%{button}"
+                ).pack(),
+                url=path["buttons"][button].get("url") if path["buttons"][button].get("url") else None
+            ))
+        else:
+            kb.add(InlineKeyboardButton(
+                text=values["button_text"],
+                callback_data=type(callback_data).create(
+                    path=callback_data.path + f"%{button}",
+                ).pack(),
+                url=path["buttons"][button].get("url") if path["buttons"][button].get("url") else None
+            ))
     kb.add(callback_data.get_back_button())
     if sizes:
         kb.adjust(*sizes)
@@ -54,13 +64,23 @@ def build_input_markup(callback_data: CallbackData,
                        *sizes) -> InlineKeyboardBuilder:
     kb = InlineKeyboardBuilder()
     for button, values in path['buttons'].items():
-        kb.add(InlineKeyboardButton(
-            text=values["button_text"],
-            callback_data=type(callback_data).create(
-                path=callback_data.path + f"%{item}#{suffix}" + f"%{button}",
-            ).pack(),
-            url=path["buttons"][button].get("url") if path["buttons"][button].get("url") else None
-        ))
+        if isinstance(callback_data, CompanyCallback):
+            kb.add(InlineKeyboardButton(
+                text=values["button_text"],
+                callback_data=type(callback_data).create(
+                    come_through=callback_data.come_through,
+                    path=callback_data.path + f"%{item}#{suffix}" + f"%{button}"
+                ).pack(),
+                url=path["buttons"][button].get("url") if path["buttons"][button].get("url") else None
+            ))
+        else:
+            kb.add(InlineKeyboardButton(
+                text=values["button_text"],
+                callback_data=type(callback_data).create(
+                    path=callback_data.path + f"%{item}#{suffix}" + f"%{button}",
+                ).pack(),
+                url=path["buttons"][button].get("url") if path["buttons"][button].get("url") else None
+            ))
     kb.add(callback_data.get_back_button())
     if sizes:
         kb.adjust(*sizes)
@@ -75,12 +95,21 @@ def build_dynamic_markup(callback_data: CallbackData,
                          *sizes) -> InlineKeyboardBuilder:
     kb = InlineKeyboardBuilder()
     for i, text in items.items():
-        kb.add(InlineKeyboardButton(
-            text=text,
-            callback_data=type(callback_data).create(
-                path=callback_data.path + f"%{i}#{suffix}",
-            ).pack(),
-        ))
+        if isinstance(callback_data, CompanyCallback):
+            kb.add(InlineKeyboardButton(
+                text=text,
+                callback_data=type(callback_data).create(
+                    come_through=callback_data.come_through,
+                    path=callback_data.path + f"%{i}#{suffix}",
+                ).pack(),
+            ))
+        else:
+            kb.add(InlineKeyboardButton(
+                text=text,
+                callback_data=type(callback_data).create(
+                    path=callback_data.path + f"%{i}#{suffix}",
+                ).pack(),
+            ))
     kb.add(callback_data.get_back_button())
     if sizes:
         kb.adjust(*sizes)

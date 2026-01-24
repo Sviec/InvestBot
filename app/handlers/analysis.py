@@ -55,7 +55,7 @@ async def get_ticker_from_favourites(callback: types.CallbackQuery, callback_dat
     data = get_path(callback_data.path)
     user_id = callback.from_user.id
     tickers = repositories.favourites.get_all_tickers(user_id)
-    kb = build_dynamic_markup(CompanyCallback(path='company'), items=tickers, suffix='tckr')
+    kb = build_dynamic_markup(CompanyCallback(come_through='analysis', path='company'), items=tickers, suffix='tckr')
     await callback.message.edit_text(
         data['text'],
         reply_markup=kb.as_markup()
