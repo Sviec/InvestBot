@@ -1,364 +1,281 @@
-from aiogram import types, Router, F
-from aiogram.fsm.context import FSMContext
-from aiogram.types import FSInputFile
+"""Карточка компании: справка, графики, отчётность, избранное.
 
+Экраны описаны таблицами соответствий, а не двумя десятками почти одинаковых
+функций: добавление нового отчёта — это одна строка в словаре.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from functools import partial
+from typing import Callable
+
+import pandas as pd
+from aiogram import Router
+from aiogram.types import CallbackQuery, Message
+
+from app.callbacks import CompanyCallback
 from app.entities.company import Company
-from app.handlers.analysis import AnalysisStates
-from app.keyboards.make_markup import build_markup, build_input_markup
+from app.handlers.common import (
+    db_call,
+    has_value,
+    last_node,
+    market_call,
+    node_for,
+    node_is,
+    not_implemented,
+    required_ticker,
+    send_report,
+    show_menu,
+    show_result,
+)
+from app.keyboards.make_markup import back_keyboard, menu_keyboard
 from app.repositories import repositories
-from app.utils.navigation import get_path
-from callbacks import CompanyCallback
+from app.repositories.dto import AddFavouriteResult, RemoveFavouriteResult
+from app.services.reports import render_line_chart, render_table
+from app.utils.messaging import safe_edit
+from app.utils.text import escape
 
-router = Router()
+logger = logging.getLogger(__name__)
 
-path = 'temp_data/user_files/report.png'
+router = Router(name="company")
 
+# Экраны, которые просто показывают вложенное меню.
+SUBMENUS = (
+    "c_info",
+    "c_graph",
+    "g_period",
+    "c_add_info",
+    "c_fa",
+    "fa_fin",
+    "c_bs",
+    "c_cf",
+    "c_earns",
+    "c_ti",
+)
 
-async def send_photo(func, callback: types.CallbackQuery, callback_data: CompanyCallback):
-    ticker = callback_data.path.split('#tckr')[0].split('%')[-1]
-    company = Company(ticker)
-    func(company)
-    text = callback.message.text
-    kb = callback.message.reply_markup
+# Разделы, которых пока нет.
+PLANNED = ("ti_ma", "ti_MACD", "ti_RSI", "ti_momentum", "ti_bal_vlm", "buy")
 
-    await callback.message.delete()
-
-    photo_path = f"{path}"
-    photo = FSInputFile(photo_path)
-    await callback.message.answer_photo(
-        photo=photo,
-        reply_markup=None
-    )
-    await callback.message.answer(
-        text,
-        reply_markup=kb
-    )
-
-    await callback.answer()
-
-
-@router.message(AnalysisStates.waiting_ticker_input)
-async def process_ticker_input(message: types.Message, state: FSMContext):
-    ticker = message.text.strip().upper()
-    company = Company(ticker)
-
-    await state.clear()
-
-    callback_data = CompanyCallback(path='company')
-
-    data = get_path('company')
-    kb = build_input_markup(callback_data, data, f'{ticker}', 'tckr')
-    await message.answer(
-        text=data['text'] + f"\n{company.get_name()}",
-        reply_markup=kb.as_markup()
-    )
+TEXT_ACTIONS: dict[str, Callable[[Company], str]] = {
+    "i_about": Company.format_info,
+    "i_desc": Company.format_description,
+    "i_divs": Company.format_dividends,
+    "ai_news": Company.format_news,
+    "c_multipliers": Company.format_multipliers,
+}
 
 
-@router.callback_query(CompanyCallback.filter(F.path.endswith("#tckr")))
-async def process_ticker_input(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    ticker = callback_data.path.split('#tckr')[0].split('%')[-1]
-    company = Company(ticker)
+@dataclass(frozen=True, slots=True)
+class TableReport:
+    """Описание табличного отчёта: откуда взять данные и как подписать."""
 
-    data = get_path('company')
-    kb = build_markup(callback_data, data)
-
-    await callback.message.edit_text(
-        text=data['text'] + f"\n{company.get_name()}",
-        reply_markup=kb.as_markup()
-    )
+    load: Callable[[Company], pd.DataFrame]
+    title: str
 
 
-@router.callback_query(CompanyCallback.filter(F.path.endswith("c_info")))
-async def common_info(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    data = get_path(callback_data.path)
-    kb = build_markup(callback_data, data)
-    await callback.message.edit_text(
-        data['text'],
-        reply_markup=kb.as_markup()
-    )
+TABLE_REPORTS: dict[str, TableReport] = {
+    "fin_year": TableReport(
+        lambda company: company.financials(quarterly=False),
+        "Финансовая отчётность {name}, по годам",
+    ),
+    "fin_quarter": TableReport(
+        lambda company: company.financials(quarterly=True),
+        "Финансовая отчётность {name}, по кварталам",
+    ),
+    "bs_year": TableReport(
+        lambda company: company.balance_sheet(quarterly=False),
+        "Балансовая отчётность {name}, по годам",
+    ),
+    "bs_quarter": TableReport(
+        lambda company: company.balance_sheet(quarterly=True),
+        "Балансовая отчётность {name}, по кварталам",
+    ),
+    "cf_year": TableReport(
+        lambda company: company.cash_flow(quarterly=False),
+        "Денежный поток {name}, по годам",
+    ),
+    "cf_quarter": TableReport(
+        lambda company: company.cash_flow(quarterly=True),
+        "Денежный поток {name}, по кварталам",
+    ),
+    "inc_year": TableReport(
+        lambda company: company.income_statement(quarterly=False),
+        "Отчёт о прибыли {name}, по годам",
+    ),
+    "inc_quarter": TableReport(
+        lambda company: company.income_statement(quarterly=True),
+        "Отчёт о прибыли {name}, по кварталам",
+    ),
+    "ai_mh": TableReport(
+        lambda company: company.major_holders(),
+        "Основные держатели акций {name}",
+    ),
+    "ai_ih": TableReport(
+        lambda company: company.institutional_holders(),
+        "Институциональные держатели акций {name}",
+    ),
+}
+
+CHART_PERIODS: dict[str, tuple[str, str]] = {
+    "g_full": ("max", "за всё время"),
+    "g_1mo": ("1mo", "за месяц"),
+    "g_6mo": ("6mo", "за полгода"),
+    "g_1y": ("1y", "за год"),
+    "g_5y": ("5y", "за пять лет"),
+}
+
+SELECT_COMPANY = "Сначала выберите компанию."
 
 
-@router.callback_query(CompanyCallback.filter(F.path.endswith("i_about")))
-async def info_about(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    ticker = callback_data.path.split('#tckr')[0].split('%')[-1]
-    company = Company(ticker)
-    await callback.message.edit_text(
-        company.get_info(),
-        reply_markup=callback.message.reply_markup
-    )
-
-
-@router.callback_query(CompanyCallback.filter(F.path.endswith("i_desc")))
-async def info_about(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    ticker = callback_data.path.split('#tckr')[0].split('%')[-1]
-    company = Company(ticker)
-    await callback.message.edit_text(
-        company.get_description(),
-        reply_markup=callback.message.reply_markup
-    )
-
-
-@router.callback_query(CompanyCallback.filter(F.path.endswith("i_divs")))
-async def info_about(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    ticker = callback_data.path.split('#tckr')[0].split('%')[-1]
-    company = Company(ticker)
-    await callback.message.edit_text(
-        company.get_dividends(),
-        reply_markup=callback.message.reply_markup
-    )
-
-
-@router.callback_query(CompanyCallback.filter(F.path.endswith("i_about")))
-async def info_about(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    ticker = callback_data.path.split('#tckr')[0].split('%')[-1]
-    company = Company(ticker)
-    await callback.message.edit_text(
-        company.get_info(),
-        reply_markup=callback.message.reply_markup
+async def company_name(company: Company) -> str:
+    return await market_call(
+        lambda: company.display_name, description=f"название {company.ticker}"
     )
 
 
-@router.callback_query(CompanyCallback.filter(F.path.endswith("c_graph")))
-async def graph(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    data = get_path(callback_data.path)
-    kb = build_markup(callback_data, data)
-    await callback.message.edit_text(
-        data['text'],
-        reply_markup=kb.as_markup()
+async def render_company_card(
+    callback_data: CompanyCallback, name: str
+) -> tuple[str, object]:
+    node = node_for(callback_data)
+    text = f"{escape(node.text)}\n<b>{escape(name)}</b>"
+    return text, menu_keyboard(callback_data, node)
+
+
+async def send_company_card(
+    message: Message, callback_data: CompanyCallback, name: str
+) -> None:
+    """Отправляет карточку компании новым сообщением (после ввода тикера)."""
+    text, markup = await render_company_card(callback_data, name)
+    await message.answer(text, reply_markup=markup)
+
+
+@router.callback_query(CompanyCallback.filter(node_is("company") & has_value("tckr")))
+async def company_card(
+    callback: CallbackQuery, callback_data: CompanyCallback
+) -> None:
+    company = Company(required_ticker(callback_data))
+    name = await company_name(company)
+    text, markup = await render_company_card(callback_data, name)
+    await safe_edit(callback, text, markup)
+
+
+@router.callback_query(CompanyCallback.filter(node_is("company") & ~has_value("tckr")))
+async def company_without_ticker(
+    callback: CallbackQuery, callback_data: CompanyCallback
+) -> None:
+    """Страховка: путь карточки без тикера означает устаревшую кнопку."""
+    await safe_edit(callback, SELECT_COMPANY, back_keyboard(callback_data))
+
+
+@router.callback_query(CompanyCallback.filter(node_is(*SUBMENUS)))
+async def company_submenu(
+    callback: CallbackQuery, callback_data: CompanyCallback
+) -> None:
+    await show_menu(callback, callback_data)
+
+
+@router.callback_query(CompanyCallback.filter(node_is(*TEXT_ACTIONS)))
+async def company_text_action(
+    callback: CallbackQuery, callback_data: CompanyCallback
+) -> None:
+    action = TEXT_ACTIONS[last_node(callback_data.path)]
+    company = Company(required_ticker(callback_data))
+    text = await market_call(
+        action, company, description=f"{action.__name__} для {company.ticker}"
+    )
+    await show_result(callback, callback_data, text)
+
+
+@router.callback_query(CompanyCallback.filter(node_is(*TABLE_REPORTS)))
+async def company_table_report(
+    callback: CallbackQuery, callback_data: CompanyCallback
+) -> None:
+    report = TABLE_REPORTS[last_node(callback_data.path)]
+    company = Company(required_ticker(callback_data))
+
+    frame = await market_call(
+        report.load, company, description=f"отчёт {company.ticker}"
+    )
+    name = await company_name(company)
+    title = report.title.format(name=name)
+
+    await send_report(
+        callback,
+        callback_data,
+        render=partial(render_table, frame, title=title),
+        description=title,
     )
 
 
-@router.callback_query(CompanyCallback.filter(F.path.endswith("g_full")))
-async def graph_full(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    await send_photo(Company.get_graphic, callback, callback_data)
+@router.callback_query(CompanyCallback.filter(node_is(*CHART_PERIODS)))
+async def company_chart(callback: CallbackQuery, callback_data: CompanyCallback) -> None:
+    period, label = CHART_PERIODS[last_node(callback_data.path)]
+    company = Company(required_ticker(callback_data))
 
+    series = await market_call(
+        company.price_history, period, description=f"котировки {company.ticker}"
+    )
+    name = await company_name(company)
+    title = f"Котировки {name} {label}"
 
-@router.callback_query(CompanyCallback.filter(F.path.endswith("g_period")))
-async def graph_period(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    await send_photo(Company.get_graphic, callback, callback_data)
-
-
-@router.callback_query(CompanyCallback.filter(F.path.endswith("c_add_info")))
-async def additional_info(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    data = get_path(callback_data.path)
-    kb = build_markup(callback_data, data)
-    await callback.message.edit_text(
-        data['text'],
-        reply_markup=kb.as_markup()
+    await send_report(
+        callback,
+        callback_data,
+        render=partial(render_line_chart, series, title=title),
+        description=title,
     )
 
 
-@router.callback_query(CompanyCallback.filter(F.path.endswith("ai_mh")))
-async def additional_info_major_holders(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    await send_photo(Company.get_major_holders, callback, callback_data)
-
-
-@router.callback_query(CompanyCallback.filter(F.path.endswith("ai_ih")))
-async def additional_info_institutional_holders(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    await send_photo(Company.get_institutional_holders, callback, callback_data)
-
-
-@router.callback_query(CompanyCallback.filter(F.path.endswith("ai_news")))
-async def additional_info_news(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    ticker = callback_data.path.split('#tckr')[0].split('%')[-1]
-    company = Company(ticker)
-    await callback.message.edit_text(
-        company.get_news(),
-        reply_markup=callback.message.reply_markup
+@router.callback_query(CompanyCallback.filter(node_is("add")))
+async def add_to_favourites(
+    callback: CallbackQuery, callback_data: CompanyCallback, user_id: int
+) -> None:
+    ticker = required_ticker(callback_data)
+    result = await db_call(
+        repositories.favourites.add,
+        user_id,
+        ticker,
+        description="добавление в избранное",
+    )
+    responses = {
+        AddFavouriteResult.ADDED: f"{ticker} добавлен в избранное",
+        AddFavouriteResult.ALREADY_EXISTS: f"{ticker} уже в избранном",
+        AddFavouriteResult.COMPANY_NOT_FOUND: (
+            f"{ticker} отсутствует в справочнике компаний, добавить не получится"
+        ),
+    }
+    await callback.answer(
+        responses[result],
+        show_alert=result is AddFavouriteResult.COMPANY_NOT_FOUND,
     )
 
 
-
-@router.callback_query(CompanyCallback.filter(F.path.endswith("c_fa")))
-async def fundamental_analysis(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    data = get_path(callback_data.path)
-    kb = build_markup(callback_data, data)
-    await callback.message.edit_text(
-        data['text'],
-        reply_markup=kb.as_markup()
+@router.callback_query(CompanyCallback.filter(node_is("remove")))
+async def remove_from_favourites(
+    callback: CallbackQuery, callback_data: CompanyCallback, user_id: int
+) -> None:
+    ticker = required_ticker(callback_data)
+    result = await db_call(
+        repositories.favourites.remove,
+        user_id,
+        ticker,
+        description="удаление из избранного",
+    )
+    responses = {
+        RemoveFavouriteResult.REMOVED: f"{ticker} удалён из избранного",
+        RemoveFavouriteResult.NOT_IN_FAVOURITES: f"{ticker} не был в избранном",
+        RemoveFavouriteResult.COMPANY_NOT_FOUND: (
+            f"{ticker} отсутствует в справочнике компаний"
+        ),
+    }
+    await callback.answer(
+        responses[result],
+        show_alert=result is RemoveFavouriteResult.COMPANY_NOT_FOUND,
     )
 
 
-@router.callback_query(CompanyCallback.filter(F.path.endswith("fa_fin")))
-async def fundamental_analysis_financials(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    data = get_path(callback_data.path)
-    kb = build_markup(callback_data, data)
-    await callback.message.edit_text(
-        data['text'],
-        reply_markup=kb.as_markup()
-    )
-
-
-@router.callback_query(CompanyCallback.filter(F.path.endswith("fin_year")))
-async def financials_year(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    await send_photo(Company.get_financials_year, callback, callback_data)
-
-
-@router.callback_query(CompanyCallback.filter(F.path.endswith("fin_quarter")))
-async def financials_quarter(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    await send_photo(Company.get_financials_quarter, callback, callback_data)
-
-
-@router.callback_query(CompanyCallback.filter(F.path.endswith("c_bs")))
-async def fundamental_analysis_balance_sheet(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    data = get_path(callback_data.path)
-    kb = build_markup(callback_data, data)
-    await callback.message.edit_text(
-        data['text'],
-        reply_markup=kb.as_markup()
-    )
-
-
-@router.callback_query(CompanyCallback.filter(F.path.endswith("bs_year")))
-async def balance_sheet_year(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    await send_photo(Company.get_balance_sheet_year, callback, callback_data)
-
-
-@router.callback_query(CompanyCallback.filter(F.path.endswith("bs_quarter")))
-async def balance_sheet_quarter(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    await send_photo(Company.get_balance_sheet_quarter, callback, callback_data)
-
-
-@router.callback_query(CompanyCallback.filter(F.path.endswith("c_cf")))
-async def fundamental_analysis_cashflow(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    data = get_path(callback_data.path)
-    kb = build_markup(callback_data, data)
-    await callback.message.edit_text(
-        data['text'],
-        reply_markup=kb.as_markup()
-    )
-
-
-@router.callback_query(CompanyCallback.filter(F.path.endswith("cf_year")))
-async def cashflow_year(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    await send_photo(Company.get_cash_flow_year, callback, callback_data)
-
-
-@router.callback_query(CompanyCallback.filter(F.path.endswith("cf_quarter")))
-async def cashflow_quarter(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    await send_photo(Company.get_cash_flow_quarter, callback, callback_data)
-
-
-@router.callback_query(CompanyCallback.filter(F.path.endswith("c_earns")))
-async def fundamental_analysis_earnings(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    data = get_path(callback_data.path)
-    kb = build_markup(callback_data, data)
-    await callback.message.edit_text(
-        data['text'],
-        reply_markup=kb.as_markup()
-    )
-
-
-@router.callback_query(CompanyCallback.filter(F.path.endswith("inc_year")))
-async def income_report_year(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    await send_photo(Company.get_income_report_year, callback, callback_data)
-
-
-@router.callback_query(CompanyCallback.filter(F.path.endswith("inc_quarter")))
-async def income_report_quarter(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    await send_photo(Company.get_income_report_quarter, callback, callback_data)
-
-
-@router.callback_query(CompanyCallback.filter(F.path.endswith("c_ti")))
-async def tech_indicators(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    data = get_path(callback_data.path)
-    kb = build_markup(callback_data, data)
-
-    await callback.message.edit_text(
-        data['text'],
-        reply_markup=kb.as_markup()
-    )
-
-
-@router.callback_query(CompanyCallback.filter(F.path.endswith("ti_ma")))
-async def tech_indicators_ma(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    await callback.answer(f"Данный функионал в разработке", show_alert=False)
-
-
-@router.callback_query(CompanyCallback.filter(F.path.endswith("ti_MACD")))
-async def tech_indicators_macd(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    await callback.answer(f"Данный функионал в разработке", show_alert=False)
-
-
-
-@router.callback_query(CompanyCallback.filter(F.path.endswith("ti_RSI")))
-async def tech_indicators_rsi(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    await callback.answer(f"Данный функионал в разработке", show_alert=False)
-
-
-
-@router.callback_query(CompanyCallback.filter(F.path.endswith("ti_momentum")))
-async def tech_indicators_momentum(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    await callback.answer(f"Данный функионал в разработке", show_alert=False)
-
-
-
-@router.callback_query(CompanyCallback.filter(F.path.endswith("ti_bal_vlm")))
-async def tech_indicators_vlm(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    await callback.answer(f"Данный функионал в разработке", show_alert=False)
-
-
-@router.callback_query(CompanyCallback.filter(F.path.endswith("c_multipliers")))
-async def multipliers(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    ticker = callback_data.path.split('#tckr')[0].split('%')[-1]
-    company = Company(ticker)
-    await callback.message.edit_text(
-        company.get_multiplier(),
-        reply_markup=callback.message.reply_markup
-    )
-
-
-@router.callback_query(CompanyCallback.filter(F.path.endswith("add")))
-async def add_favourite(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    ticker = callback_data.path.split('#tckr')[0].split('%')[-1].upper()
-    telegram_id = callback.from_user.id
-
-    try:
-        user = repositories.user.get_user_id_telegram_id(telegram_id)
-        if not user:
-            username = callback.from_user.username
-            repositories.user.create_user(telegram_id, username)
-
-        success = repositories.favourites.add_favourite(user, ticker)
-
-        if success:
-            await callback.answer(f"✅ {ticker} добавлен в избранное!", show_alert=False)
-        else:
-            await callback.answer("❌ Не удалось добавить в избранное", show_alert=True)
-        await callback.message.edit_text(
-            callback.message.text,
-            reply_markup=callback.message.reply_markup
-        )
-    except Exception as e:
-        await callback.answer("❌ Произошла ошибка", show_alert=True)
-
-
-@router.callback_query(CompanyCallback.filter(F.path.endswith("remove")))
-async def remove_favourite(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    ticker = callback_data.path.split('#tckr')[0].split('%')[-1].upper()
-    telegram_id = callback.from_user.id
-
-    try:
-        user = repositories.user.get_user_id_telegram_id(telegram_id)
-        if not user:
-            username = callback.from_user.username
-            repositories.user.create_user(telegram_id, username)
-        company_id = repositories.company.get_id_by_ticker(ticker)
-        success = repositories.favourites.remove_favourite(user, company_id)
-
-        if success:
-            await callback.answer(f"✅ {ticker} удален из избранного!", show_alert=False)
-        else:
-            await callback.answer("❌ Не удалось удалить из избранного", show_alert=True)
-        await callback.message.edit_text(
-            callback.message.text,
-            reply_markup=callback.message.reply_markup
-        )
-    except Exception as e:
-        print(e)
-        await callback.answer("❌ Произошла ошибка", show_alert=True)
-
-
-@router.callback_query(CompanyCallback.filter(F.path.endswith("buy")))
-async def buy(callback: types.CallbackQuery, callback_data: CompanyCallback):
-    await callback.answer(f"Покупка этого тикера пока недоступна", show_alert=False)
+@router.callback_query(CompanyCallback.filter(node_is(*PLANNED)))
+async def planned_feature(callback: CallbackQuery) -> None:
+    await not_implemented(callback)

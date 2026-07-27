@@ -1,242 +1,223 @@
-import yfinance as yf
+"""Компания как источник рыночных данных."""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-import numpy as np
-import six
+import yfinance as yf
+
+from app.core.errors import NoDataError, TickerNotFoundError
+from app.entities.base import fetch
+from app.entities.session import get_market_session
+from app.utils.text import escape, format_number, format_percent, join_lines, truncate
+from app.utils.validators import normalize_ticker
+
+logger = logging.getLogger(__name__)
+
+MAX_DIVIDEND_ROWS = 10
+MAX_NEWS_ITEMS = 8
 
 
 class Company:
-    def __init__(self, ind: str = 'AAPL'):
-        self.ind = yf.Ticker(ind.upper())
-        self.info = self.ind.info
+    """Доступ к данным компании по тикеру.
 
-    def get_info(self) -> str:
-        info = ""
-        if 'country' in self.info and self.info['country'] is not None:
-            info += f"Страна: {self.info['country']}\n"
-        if 'city' in self.info and self.info['city'] is not None:
-            info += f"Город: {self.info['city']}\n"
-        if 'sector' in self.info and self.info['sector'] is not None:
-            info += f"Сектор: {self.info['sector']}\n"
-        if 'industry' in self.info and self.info['industry'] is not None:
-            info += f"Индустрия: {self.info['industry']}\n"
-        if 'marketCap' in self.info and  self.info['marketCap'] is not None:
-            info += f"Капитализация: {'{:,.1f}'.format(self.info['marketCap'])}\n"
-        if 'fullTimeEmployees' in self.info and self.info['fullTimeEmployees'] is not None:
-            info += f"Кол-во сотрудников: {self.info['fullTimeEmployees']}\n"
-        if 'website' in self.info and self.info['website'] is not None:
-            info += f"Сайт: {self.info['website']}"
-        return info
+    Объект дешёвый: сетевых запросов в конструкторе нет, `info` загружается
+    при первом обращении и переиспользуется из кеша.
+    """
 
-    def get_description(self):
-        return self.info['longBusinessSummary']
+    def __init__(self, ticker: str) -> None:
+        self.ticker = normalize_ticker(ticker)
+        self._yf = yf.Ticker(self.ticker, session=get_market_session())
 
-    def get_dividends(self) -> str:
-        dividends = self.ind.dividends
-        if len(dividends) == 0:
-            return 'Компания не выплачивает дивиденды'
-        temp_text = 'Последние выплаты:\n'
-        max_payments = min(10, len(dividends.values))
-        for i_payment in range(1, max_payments):
-            temp_text += f'{dividends.index[-i_payment]} - {dividends.values[-i_payment]}\n'
-        return temp_text
+    def __repr__(self) -> str:
+        return f"<Company {self.ticker}>"
 
-    # def get_sustainability(self) -> str:
-    #     sustainability = self.ind.sustainability
-    #     if sustainability is None:
-    #         return 'По этой компании нет данных'
-    #     result_text = ""
-    #     if 'totalEsg' in sustainability:
-    #         result_text += f"Total ESG Risk score: {sustainability.loc['totalEsg']['Value']}\n"
-    #     if 'environmentScore' in sustainability:
-    #         result_text += f"Environment Risk Score: {sustainability.loc['environmentScore']['Value']}\n"
-    #     if 'socialScore' in sustainability:
-    #         result_text += f"Social Risk Score: {sustainability.loc['socialScore']['Value']}\n"
-    #     if 'governanceScore' in sustainability:
-    #         result_text += f"Governance Risk Score: {sustainability.loc['governanceScore']['Value']}\n"
-    #     if 'highestControversy' in sustainability:
-    #         result_text += f"Controversy Level: {sustainability.loc['highestControversy']['Value']}"
-    #     return result_text
+    # --- загрузка ---
 
-    def get_name(self):
-        try:
-            return self.info['longName']
-        except Exception as e:
-            return None
+    def _load_info(self) -> dict[str, Any]:
+        data = self._yf.info
+        # yfinance на несуществующий тикер отвечает почти пустым словарём
+        # вместо исключения, поэтому проверяем содержимое.
+        if not isinstance(data, dict) or not (
+            data.get("symbol") or data.get("shortName") or data.get("longName")
+        ):
+            raise TickerNotFoundError(self.ticker)
+        return data
 
-    def get_price(self):
-        return self.info['currentPrice']
-
-    def set_ticker(self, new_ind):
-        self.ind = yf.Ticker(new_ind.upper())
-        self.info = self.ind.info
-
-    def get_graphic(self, start='', end=''):
-        if start == '':
-            df = self.ind.history(period='max')['Close']
-        else:
-            df = self.ind.history(start=start, end=end)['Close']
-        fig, ax = plt.subplots(figsize=(12, 6))
-
-        sns.set_style("darkgrid", {'axes.grid': True})
-        sns.lineplot(data=df, ax=ax)
-        ax.yaxis.tick_right()
-
-        ax.set_title(f'График акций компании {self.get_name()}')
-        ax.set_xlabel('')
-        ax.set_ylabel('')
-        plt.savefig("temp_data/user_files/report.png")
-
-    def get_multiplier(self) -> str:
-        multiplier_data = f"Основные мультипликаторы:\n"
-        if 'trailingPE' in self.info:
-            multiplier_data += f"Trailing P/E: {round(self.info['trailingPE'], 2)}\n"
-        if 'priceToSalesTrailing12Months' in self.info:
-            multiplier_data += f"P/S: {round(self.info['priceToSalesTrailing12Months'], 2)}\n"
-        if 'priceToBook' in self.info:
-            multiplier_data += f"P/B: {round(self.info['priceToBook'], 2)}\n"
-        if 'debtToEquity' in self.info and type(self.info['debtToEquity']) is float:
-            f"TotalDebt/Equity: {round(self.info['debtToEquity'], 2)}\n"
-        if 'totalDebt' in self.info and 'totalCash' in self.info and \
-                'ebitda' in self.info and type(self.info['ebitda']) is float:
-            multiplier_data += f"NetDebt/EBITDA: " \
-                                f"{round((self.info['totalDebt'] - self.info['totalCash']) / self.info['ebitda'], 2)}\n"
-        if 'currentRatio' in self.info and type(self.info['currentRatio']) is float:
-            multiplier_data += f"Current Ratio: {round(self.info['currentRatio'], 2)}\n"
-        if 'returnOnEquity' in self.info:
-            multiplier_data += f"ROE: {str(round(self.info['returnOnEquity'] * 100, 2)) + '%'}\n"
-        if 'returnOnAssets' in self.info:
-            multiplier_data += f"ROA: {str(round(self.info['returnOnAssets'] * 100, 2)) + '%'}\n"
-        if 'enterpriseToEbitda' in self.info and type(self.info['enterpriseToEbitda']) is float:
-            multiplier_data += f"EV/EBITDA: {round(self.info['enterpriseToEbitda'], 2)}"
-
-        return multiplier_data
-
-    def get_balance_sheet_year(self):
-        self.get_report(
-            pd.DataFrame(self.ind.balance_sheet),
-            'temp_data/user_files/report.png',
-            f'Балансовая отчетность компании {self.get_name()} по годам'
+    @property
+    def info(self) -> dict[str, Any]:
+        return fetch(
+            f"company:info:{self.ticker}",
+            self._load_info,
+            description=f"сведения о {self.ticker}",
         )
 
-    def get_balance_sheet_quarter(self):
-        self.get_report(
-            pd.DataFrame(self.ind.quarterly_balance_sheet),
-            'temp_data/user_files/report.png',
-            f'Балансовая отчетность компании {self.get_name()} по кварталам'
+    def _load_frame(self, attribute: str) -> pd.DataFrame:
+        frame = getattr(self._yf, attribute)
+        if frame is None or not isinstance(frame, pd.DataFrame) or frame.empty:
+            raise NoDataError(
+                f"{attribute} для {self.ticker} пуст",
+                user_message="Провайдер не публикует эти данные по выбранной компании.",
+            )
+        return frame
+
+    def _frame(self, attribute: str) -> pd.DataFrame:
+        return fetch(
+            f"company:{attribute}:{self.ticker}",
+            lambda: self._load_frame(attribute),
+            description=f"{attribute} для {self.ticker}",
         )
 
-    def get_financials_year(self):
-        self.get_report(
-            pd.DataFrame(self.ind.financials),
-            'temp_data/user_files/report.png',
-            f'Финансовая отчетность компании {self.get_name()} по годам'
+    # --- отчётные таблицы ---
+
+    def financials(self, *, quarterly: bool) -> pd.DataFrame:
+        return self._frame("quarterly_financials" if quarterly else "financials")
+
+    def balance_sheet(self, *, quarterly: bool) -> pd.DataFrame:
+        return self._frame("quarterly_balance_sheet" if quarterly else "balance_sheet")
+
+    def cash_flow(self, *, quarterly: bool) -> pd.DataFrame:
+        return self._frame("quarterly_cashflow" if quarterly else "cashflow")
+
+    def income_statement(self, *, quarterly: bool) -> pd.DataFrame:
+        return self._frame("quarterly_income_stmt" if quarterly else "income_stmt")
+
+    def major_holders(self) -> pd.DataFrame:
+        return self._frame("major_holders")
+
+    def institutional_holders(self) -> pd.DataFrame:
+        return self._frame("institutional_holders")
+
+    def price_history(self, period: str = "max") -> pd.Series:
+        def _load() -> pd.Series:
+            history = self._yf.history(period=period)
+            if history is None or history.empty or "Close" not in history:
+                raise NoDataError(
+                    f"История котировок {self.ticker} пуста",
+                    user_message="По этой компании нет истории котировок.",
+                )
+            return history["Close"]
+
+        return fetch(
+            f"company:history:{period}:{self.ticker}",
+            _load,
+            description=f"котировки {self.ticker} за {period}",
         )
 
-    def get_financials_quarter(self):
-        self.get_report(
-            pd.DataFrame(self.ind.quarterly_financials),
-            'temp_data/user_files/report.png',
-            f'Финансовая отчетность компании {self.get_name()} по кварталам'
-        )
+    # --- форматирование ---
 
-    def get_cash_flow_year(self):
-        self.get_report(
-            pd.DataFrame(self.ind.cashflow),
-            'temp_data/user_files/report.png',
-            f'Денежный поток компании {self.get_name()} по годам'
-        )
+    @property
+    def display_name(self) -> str:
+        info = self.info
+        return str(info.get("longName") or info.get("shortName") or self.ticker)
 
-    def get_cash_flow_quarter(self):
-        self.get_report(
-            pd.DataFrame(self.ind.quarterly_cashflow),
-            'temp_data/user_files/report.png',
-            f'Денежный поток компании {self.get_name()} по кварталам'
+    def format_info(self) -> str:
+        info = self.info
+        fields = (
+            ("Страна", info.get("country")),
+            ("Город", info.get("city")),
+            ("Сектор", info.get("sector")),
+            ("Индустрия", info.get("industry")),
+            ("Капитализация", format_number(info.get("marketCap"), digits=0)),
+            ("Сотрудников", format_number(info.get("fullTimeEmployees"), digits=0)),
+            ("Сайт", info.get("website")),
         )
+        lines = [
+            f"<b>{escape(label)}:</b> {escape(value)}"
+            for label, value in fields
+            if value not in (None, "")
+        ]
+        if not lines:
+            raise NoDataError(user_message="По этой компании нет справочных данных.")
+        return join_lines([f"<b>{escape(self.display_name)}</b>", "", *lines])
 
-    def get_income_report_year(self):
-        self.get_report(
-            pd.DataFrame(self.ind.income_stmt),
-            'temp_data/user_files/report.png',
-            f'Выручка компании {self.get_name()} по годам'
+    def format_description(self) -> str:
+        summary = self.info.get("longBusinessSummary")
+        if not summary:
+            raise NoDataError(user_message="Описание компании недоступно.")
+        return f"<b>{escape(self.display_name)}</b>\n\n{escape(summary)}"
+
+    def format_dividends(self) -> str:
+        def _load() -> pd.Series:
+            dividends = self._yf.dividends
+            if dividends is None or len(dividends) == 0:
+                raise NoDataError(user_message="Компания не выплачивает дивиденды.")
+            return dividends
+
+        dividends = fetch(
+            f"company:dividends:{self.ticker}",
+            _load,
+            description=f"дивиденды {self.ticker}",
         )
+        recent = dividends.tail(MAX_DIVIDEND_ROWS).iloc[::-1]
+        lines = [
+            f"{index.date().isoformat()} — {format_number(value)}"
+            for index, value in recent.items()
+        ]
+        return join_lines([f"<b>Последние выплаты, {escape(self.ticker)}</b>", "", *lines])
 
-    def get_income_report_quarter(self):
-        self.get_report(
-            pd.DataFrame(self.ind.quarterly_income_stmt),
-            'temp_data/user_files/report.png',
-            f'Выручка компании {self.get_name()} по кварталам'
+    def format_multipliers(self) -> str:
+        info = self.info
+        net_debt_to_ebitda = self._net_debt_to_ebitda(info)
+        rows = (
+            ("Trailing P/E", format_number(info.get("trailingPE"))),
+            ("P/S", format_number(info.get("priceToSalesTrailing12Months"))),
+            ("P/B", format_number(info.get("priceToBook"))),
+            ("TotalDebt/Equity", format_number(info.get("debtToEquity"))),
+            ("NetDebt/EBITDA", format_number(net_debt_to_ebitda)),
+            ("Current Ratio", format_number(info.get("currentRatio"))),
+            ("ROE", format_percent(info.get("returnOnEquity"))),
+            ("ROA", format_percent(info.get("returnOnAssets"))),
+            ("EV/EBITDA", format_number(info.get("enterpriseToEbitda"))),
+        )
+        lines = [f"{escape(label)}: <b>{value}</b>" for label, value in rows if value]
+        if not lines:
+            raise NoDataError(user_message="Мультипликаторы по этой компании недоступны.")
+        return join_lines(
+            [f"<b>Мультипликаторы {escape(self.display_name)}</b>", "", *lines]
         )
 
     @staticmethod
-    def make_photo(df, file: str, title: str = ''):
-        indexes = df.index
-        df.insert(0, 'Parameter', indexes)
+    def _net_debt_to_ebitda(info: dict[str, Any]) -> float | None:
+        total_debt = info.get("totalDebt")
+        total_cash = info.get("totalCash")
+        ebitda = info.get("ebitda")
+        try:
+            if None in (total_debt, total_cash, ebitda) or float(ebitda) == 0:
+                return None
+            return (float(total_debt) - float(total_cash)) / float(ebitda)
+        except (TypeError, ValueError, ZeroDivisionError):
+            return None
 
-        row_colors = ['#f1f1f2', 'w']
-        size = (np.array(df.shape[::-1]) + np.array([1, 1])) * np.array([3.0, 0.625])
-        fig, ax = plt.subplots(figsize=size)
-        ax.axis('off')
-        mpl_table = ax.table(cellText=df.values, bbox=[0, 0, 1, 1], colLabels=df.columns)
+    def format_news(self) -> str:
+        def _load() -> list[dict[str, Any]]:
+            news = self._yf.news
+            if not news:
+                raise NoDataError(user_message="Свежих новостей по компании нет.")
+            return list(news)
 
-        mpl_table.auto_set_font_size(False)
-        mpl_table.set_fontsize(13)
-        mpl_table.auto_set_column_width(col=list(range(len(df.columns))))
-        ax.set_title(label=title)
+        news = fetch(
+            f"company:news:{self.ticker}",
+            _load,
+            description=f"новости {self.ticker}",
+        )
 
-        for k, cell in six.iteritems(mpl_table._cells):
-            cell.set_edgecolor('w')
-            if k[0] == 0:
-                cell.set_text_props(weight='bold', color='w')
-                cell.set_facecolor('#40466e')
-            else:
-                cell.set_facecolor(row_colors[k[0] % 2])
-
-        plt.savefig(file)
-
-    def get_report(self, df: pd.DataFrame, filename: str, text: str):
-        df.iloc[[i for i in range(1, len(df))], :] /= 1000
-        df.drop(index=[df.index[0]], inplace=True)
-        for row in range(df.shape[0]):
-            for elem in range(len(df.columns)):
-                df.iloc[row, elem] = '{:,.1f}'.format(df.iloc[row, elem])
-        self.make_photo(df, filename, text)
-
-    def get_major_holders(self):
-        df = pd.DataFrame(self.ind.major_holders)
-        self.make_photo(df, 'temp_data/user_files/report.png', f'Основные держатели акций компании {self.get_name()}')
-
-    def get_institutional_holders(self):
-        df = pd.DataFrame(self.ind.institutional_holders)
-        self.make_photo(df, 'temp_data/user_files/report.png',
-                        f'Институциональные держатели акций компании {self.get_name()}')
-
-    def get_news(self):
-        news = "Последние новости (на английском):\n"
-        if len(self.ind.news) == 0:
-            news += "Новостей нет\n"
-        else:
-            for elem in self.ind.news:
-                try:
-                    news += f"{elem['content']['title']} - {elem['content']['canonicalUrl']['url']}\n"
-                except:
-                    continue
-        return news
-
-
-'''
-multiplier_list = {'p/b': 'priceToBook', 
-                    'p/s': 'priceToSalesTrailing12Months', 
-                    'trailing P/E': 'trailingPE',
-                   'TotalDebt/Equity': 'debtToEquity',
-                   'TotalCash': 'totalCash', 
-                   'TotalDebt': 'totalDebt', # totaldebt - totalcash = netdebt
-                  'Current Ratio': 'currentRatio',
-                  'ROA': 'returnOnAssets', 
-                  'ROE': 'returnOnEquity',
-                   'EV': 'enterpriseValue', 
-                   'EBITDA': 'ebitda',
-                   'EV/EBITDA': 'enterpriseToEbitda'
-                   }
-'''
+        lines: list[str] = []
+        for item in news[:MAX_NEWS_ITEMS]:
+            content = item.get("content") if isinstance(item, dict) else None
+            if not isinstance(content, dict):
+                continue
+            title = content.get("title")
+            url = (content.get("canonicalUrl") or {}).get("url")
+            if not title:
+                continue
+            lines.append(
+                f'• <a href="{escape(url)}">{escape(truncate(title, 150))}</a>'
+                if url
+                else f"• {escape(truncate(title, 150))}"
+            )
+        if not lines:
+            raise NoDataError(user_message="Свежих новостей по компании нет.")
+        return join_lines(["<b>Последние новости (на английском)</b>", "", *lines])
