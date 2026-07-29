@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from functools import partial
-from typing import Callable
+from typing import Callable, Mapping
 
 import pandas as pd
 from aiogram import Router
@@ -17,14 +17,16 @@ from aiogram.types import CallbackQuery, Message
 
 from app.callbacks import CompanyCallback
 from app.entities.company import Company
+from app.entities import indicators as ti
 from app.handlers.common import (
+    REPORT_PROGRESS,
+    ack,
     db_call,
     has_value,
     last_node,
     market_call,
     node_for,
     node_is,
-    not_implemented,
     required_ticker,
     send_report,
     show_menu,
@@ -33,7 +35,7 @@ from app.handlers.common import (
 from app.keyboards.make_markup import back_keyboard, menu_keyboard
 from app.repositories import repositories
 from app.repositories.dto import AddFavouriteResult, RemoveFavouriteResult
-from app.services.reports import render_line_chart, render_table
+from app.services.reports import render_indicator_chart, render_line_chart, render_table
 from app.utils.messaging import safe_edit
 from app.utils.text import escape
 
@@ -55,15 +57,13 @@ SUBMENUS = (
     "c_ti",
 )
 
-# Разделы, которых пока нет.
-PLANNED = ("ti_ma", "ti_MACD", "ti_RSI", "ti_momentum", "ti_bal_vlm", "buy")
-
 TEXT_ACTIONS: dict[str, Callable[[Company], str]] = {
     "i_about": Company.format_info,
     "i_desc": Company.format_description,
     "i_divs": Company.format_dividends,
     "ai_news": Company.format_news,
     "c_multipliers": Company.format_multipliers,
+    "fa_key": Company.format_key_metrics,
 }
 
 
@@ -126,13 +126,96 @@ CHART_PERIODS: dict[str, tuple[str, str]] = {
     "g_5y": ("5y", "за пять лет"),
 }
 
+# Двух лет хватает на MA200; отдельный запрос к провайдеру не нужен —
+# индикаторы считаются локально по OHLCV из price_frame.
+INDICATOR_HISTORY_PERIOD = "2y"
+
+
+@dataclass(frozen=True, slots=True)
+class IndicatorChart:
+    """Данные для render_indicator_chart после локального расчёта."""
+
+    price: pd.Series
+    overlays: Mapping[str, pd.Series]
+    panel: Mapping[str, pd.Series]
+    panel_bars: Mapping[str, pd.Series]
+
+
+@dataclass(frozen=True, slots=True)
+class IndicatorReport:
+    """Описание техиндикатора: как подписать и как посчитать по OHLCV."""
+
+    title: str
+    build: Callable[[pd.DataFrame], IndicatorChart]
+
+
+def _ma_chart(frame: pd.DataFrame) -> IndicatorChart:
+    close = frame["Close"]
+    averages = ti.moving_averages(close)
+    return IndicatorChart(
+        price=close,
+        overlays={column: averages[column] for column in averages.columns},
+        panel={},
+        panel_bars={},
+    )
+
+
+def _rsi_chart(frame: pd.DataFrame) -> IndicatorChart:
+    close = frame["Close"]
+    values = ti.rsi(close)
+    return IndicatorChart(price=close, overlays={}, panel={"RSI": values}, panel_bars={})
+
+
+def _macd_chart(frame: pd.DataFrame) -> IndicatorChart:
+    close = frame["Close"]
+    values = ti.macd(close)
+    return IndicatorChart(
+        price=close,
+        overlays={},
+        panel={"MACD": values["MACD"], "Signal": values["Signal"]},
+        panel_bars={"Histogram": values["Histogram"]},
+    )
+
+
+def _momentum_chart(frame: pd.DataFrame) -> IndicatorChart:
+    close = frame["Close"]
+    values = ti.momentum(close)
+    return IndicatorChart(
+        price=close, overlays={}, panel={"Momentum": values}, panel_bars={}
+    )
+
+
+def _obv_chart(frame: pd.DataFrame) -> IndicatorChart:
+    close = frame["Close"]
+    values = ti.obv(close, frame["Volume"])
+    return IndicatorChart(price=close, overlays={}, panel={"OBV": values}, panel_bars={})
+
+
+INDICATORS: dict[str, IndicatorReport] = {
+    "ti_ma": IndicatorReport("Скользящие средние {name}", _ma_chart),
+    "ti_MACD": IndicatorReport("MACD {name}", _macd_chart),
+    "ti_RSI": IndicatorReport("RSI {name}", _rsi_chart),
+    "ti_momentum": IndicatorReport("Momentum {name}", _momentum_chart),
+    "ti_bal_vlm": IndicatorReport("OBV {name}", _obv_chart),
+}
+
 SELECT_COMPANY = "Сначала выберите компанию."
 
 
 async def company_name(company: Company) -> str:
-    return await market_call(
-        lambda: company.display_name, description=f"название {company.ticker}"
+    """Имя из справочника БД; при отсутствии записи — тикер.
+
+    Раньше ходило в yfinance.info только ради подписи — лишний запрос на
+    каждую карточку и отчёт.
+    """
+    row = await db_call(
+        repositories.company.get_by_ticker,
+        company.ticker,
+        description=f"название {company.ticker}",
     )
+    if row is not None and row.name:
+        return row.name
+    return company.ticker
 
 
 async def render_company_card(
@@ -180,6 +263,7 @@ async def company_submenu(
 async def company_text_action(
     callback: CallbackQuery, callback_data: CompanyCallback
 ) -> None:
+    await ack(callback)
     action = TEXT_ACTIONS[last_node(callback_data.path)]
     company = Company(required_ticker(callback_data))
     text = await market_call(
@@ -192,6 +276,7 @@ async def company_text_action(
 async def company_table_report(
     callback: CallbackQuery, callback_data: CompanyCallback
 ) -> None:
+    await ack(callback, REPORT_PROGRESS)
     report = TABLE_REPORTS[last_node(callback_data.path)]
     company = Company(required_ticker(callback_data))
 
@@ -211,6 +296,7 @@ async def company_table_report(
 
 @router.callback_query(CompanyCallback.filter(node_is(*CHART_PERIODS)))
 async def company_chart(callback: CallbackQuery, callback_data: CompanyCallback) -> None:
+    await ack(callback, REPORT_PROGRESS)
     period, label = CHART_PERIODS[last_node(callback_data.path)]
     company = Company(required_ticker(callback_data))
 
@@ -224,6 +310,38 @@ async def company_chart(callback: CallbackQuery, callback_data: CompanyCallback)
         callback,
         callback_data,
         render=partial(render_line_chart, series, title=title),
+        description=title,
+    )
+
+
+@router.callback_query(CompanyCallback.filter(node_is(*INDICATORS)))
+async def company_indicator(
+    callback: CallbackQuery, callback_data: CompanyCallback
+) -> None:
+    await ack(callback, REPORT_PROGRESS)
+    report = INDICATORS[last_node(callback_data.path)]
+    company = Company(required_ticker(callback_data))
+
+    frame = await market_call(
+        company.price_frame,
+        INDICATOR_HISTORY_PERIOD,
+        description=f"OHLCV {company.ticker}",
+    )
+    chart = report.build(frame)
+    name = await company_name(company)
+    title = report.title.format(name=name)
+
+    await send_report(
+        callback,
+        callback_data,
+        render=partial(
+            render_indicator_chart,
+            chart.price,
+            title=title,
+            overlays=chart.overlays,
+            panel=chart.panel,
+            panel_bars=chart.panel_bars,
+        ),
         description=title,
     )
 
@@ -274,8 +392,3 @@ async def remove_from_favourites(
         responses[result],
         show_alert=result is RemoveFavouriteResult.COMPANY_NOT_FOUND,
     )
-
-
-@router.callback_query(CompanyCallback.filter(node_is(*PLANNED)))
-async def planned_feature(callback: CallbackQuery) -> None:
-    await not_implemented(callback)

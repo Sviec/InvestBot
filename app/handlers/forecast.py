@@ -1,50 +1,100 @@
-from aiogram import Router, types, F
+"""Раздел «Прогноз».
+
+Модель прогнозирования ещё не реализована, поэтому раздел доводит пользователя
+до выбора компании и честно сообщает о статусе, вместо того чтобы обрывать
+навигацию на кнопке без обработчика.
+"""
+
+from __future__ import annotations
+
+import logging
+
+from aiogram import Router
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import StatesGroup, State
+from aiogram.types import CallbackQuery
 
-from callbacks import ForecastCallback
-from app.keyboards.make_markup import build_markup, input_markup, build_dynamic_markup
-from app.utils.navigation import get_path
+from app.callbacks import TICKER_SUFFIX, ForecastCallback, Origin
+from app.handlers.common import (
+    db_call,
+    has_value,
+    node_for,
+    node_is,
+    required_ticker,
+    show_items,
+    show_menu,
+    ticker_items,
+)
+from app.keyboards.make_markup import back_keyboard
 from app.repositories import repositories
+from app.states import TickerInput
+from app.utils.messaging import safe_edit
+from app.utils.text import escape
 
-router = Router()
+logger = logging.getLogger(__name__)
+
+router = Router(name="forecast")
+
+FORECAST_STUB = (
+    "Компания: <b>{name}</b>\n\n"
+    "Прогнозирование котировок ещё в разработке. "
+    "Пока посмотрите отчётность и мультипликаторы в разделе «Анализ»."
+)
+EMPTY_FAVOURITES = (
+    "В избранном пока пусто. Добавьте компанию через «Анализ» → «Компания»."
+)
 
 
-class ForecastStates(StatesGroup):
-    waiting_ticker_input = State()
+@router.callback_query(ForecastCallback.filter(node_is("forecast")))
+async def forecast_menu(
+    callback: CallbackQuery, callback_data: ForecastCallback
+) -> None:
+    await show_menu(callback, callback_data)
 
 
-@router.callback_query(ForecastCallback.filter(F.path.endswith("forecast")))
-async def forecast_menu(callback: types.CallbackQuery, callback_data: ForecastCallback):
-    data = get_path(callback_data.path)
-    kb = build_markup(callback_data, data)
-    await callback.message.edit_text(
-        data['text'],
-        reply_markup=kb.as_markup()
+@router.callback_query(
+    ForecastCallback.filter(node_is("manual") & ~has_value(TICKER_SUFFIX))
+)
+async def ask_for_ticker(
+    callback: CallbackQuery, callback_data: ForecastCallback, state: FSMContext
+) -> None:
+    node = node_for(callback_data)
+    await safe_edit(
+        callback,
+        escape(node.input_text or node.text),
+        back_keyboard(callback_data),
+    )
+    await state.set_state(TickerInput.waiting)
+    await state.update_data(origin=Origin.FORECAST.value)
+
+
+@router.callback_query(
+    ForecastCallback.filter(node_is("favorites") & ~has_value(TICKER_SUFFIX))
+)
+async def favourites_picker(
+    callback: CallbackQuery, callback_data: ForecastCallback, user_id: int
+) -> None:
+    tickers = await db_call(
+        repositories.favourites.list_tickers, user_id, description="список избранного"
+    )
+    await show_items(
+        callback,
+        callback_data,
+        ticker_items(tickers),
+        TICKER_SUFFIX,
+        empty_text=EMPTY_FAVOURITES,
+        columns=3,
     )
 
 
-@router.callback_query(ForecastCallback.filter(F.path.endswith("manual")))
-async def request_ticker_input(callback: types.CallbackQuery, callback_data: ForecastCallback, state: FSMContext):
-    data = get_path(callback_data.path)
-    await callback.message.edit_text(
-        data['input_text'],
-        reply_markup=input_markup(callback_data=callback_data).as_markup()
+@router.callback_query(
+    ForecastCallback.filter(node_is("manual", "favorites") & has_value(TICKER_SUFFIX))
+)
+async def forecast_placeholder(
+    callback: CallbackQuery, callback_data: ForecastCallback
+) -> None:
+    ticker = required_ticker(callback_data)
+    await safe_edit(
+        callback,
+        FORECAST_STUB.format(name=escape(ticker)),
+        back_keyboard(callback_data),
     )
-    await state.update_data(callback_path=callback_data.path)
-    await state.set_state(ForecastStates.waiting_ticker_input)
-    await callback.answer()
-
-
-@router.callback_query(ForecastCallback.filter(F.path.endswith("favorites")))
-async def get_ticker_from_favourites(callback: types.CallbackQuery, callback_data: ForecastCallback):
-    data = get_path(callback_data.path)
-    user_id = callback.from_user.id
-    tickers = repositories.favourites.get_all_tickers(user_id)
-    kb = build_dynamic_markup(callback_data, items=tickers, suffix='tckr')
-    await callback.message.edit_text(
-        data['text'],
-        reply_markup=kb.as_markup()
-    )
-
-

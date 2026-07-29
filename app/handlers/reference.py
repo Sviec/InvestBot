@@ -1,22 +1,18 @@
-from aiogram import Router, F, types
-from aiogram.fsm.state import StatesGroup, State
+"""Раздел «Справка»: ссылки на внешние материалы."""
 
-from callbacks import ReferenceCallback
-from app.keyboards.make_markup import build_markup
-from app.utils.navigation import get_path
+from __future__ import annotations
 
-router = Router()
+from aiogram import Router
+from aiogram.types import CallbackQuery
+
+from app.callbacks import ReferenceCallback
+from app.handlers.common import node_is, show_menu
+
+router = Router(name="reference")
 
 
-class ProfileStates(StatesGroup):
-    waiting_ticker_input = State()
-
-
-@router.callback_query(ReferenceCallback.filter(F.path.endswith("reference")))
-async def reference_menu(callback: types.CallbackQuery, callback_data: ReferenceCallback):
-    data = get_path(callback_data.path)
-    kb = build_markup(callback_data, data)
-    await callback.message.edit_text(
-        data['text'],
-        reply_markup=kb.as_markup()
-    )
+@router.callback_query(ReferenceCallback.filter(node_is("reference")))
+async def reference_menu(
+    callback: CallbackQuery, callback_data: ReferenceCallback
+) -> None:
+    await show_menu(callback, callback_data)

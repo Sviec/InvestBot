@@ -1,174 +1,312 @@
-from aiogram import types, Router, F
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import StatesGroup, State
+"""Раздел «Анализ»: секторы, отрасли и переход к карточке компании."""
 
-from callbacks import AnalysisCallback, CompanyCallback
+from __future__ import annotations
+
+import logging
+from functools import partial
+from typing import Callable
+
+import pandas as pd
+from aiogram import Router
+from aiogram.fsm.context import FSMContext
+from aiogram.types import CallbackQuery
+
+from app.callbacks import (
+    INDUSTRY_SUFFIX,
+    SECTOR_SUFFIX,
+    TICKER_SUFFIX,
+    AnalysisCallback,
+    CompanyCallback,
+    Origin,
+)
+from app.core.errors import ValidationError
+from app.entities.company import Company
 from app.entities.industry import Industry
 from app.entities.sector import Sector
-from app.keyboards.make_markup import build_markup, input_markup, build_dynamic_markup
-from app.utils.navigation import get_path
+from app.handlers.common import (
+    REPORT_PROGRESS,
+    ack,
+    db_call,
+    has_value,
+    last_node,
+    market_call,
+    named_items,
+    node_for,
+    node_is,
+    required_id,
+    send_report,
+    show_items,
+    show_menu,
+    show_result,
+    ticker_items,
+)
+from app.keyboards.make_markup import back_keyboard
 from app.repositories import repositories
+from app.services.reports import render_bar_chart, render_line_chart, render_table
+from app.states import TickerInput
+from app.utils.messaging import safe_edit
+from app.utils.text import escape
 
-router = Router()
+logger = logging.getLogger(__name__)
+
+router = Router(name="analysis")
+
+EMPTY_FAVOURITES = (
+    "В избранном пока пусто. Откройте карточку компании и нажмите "
+    "«Добавить в избранное»."
+)
+EMPTY_SECTORS = "Справочник секторов пуст. Сообщите администратору."
+EMPTY_INDUSTRIES = "У этого сектора нет отраслей в справочнике."
+
+# История ведущего ETF сектора: достаточно для динамики, без max.
+SECTOR_ETF_CHART_PERIOD = "1y"
+
+INDUSTRY_RANKINGS: dict[str, tuple[Callable[[Industry], pd.DataFrame], str, str]] = {
+    "i_top": (
+        Industry.top_companies,
+        "Топ компаний отрасли {name}",
+        "топ компаний отрасли",
+    ),
+    "i_top_growth": (
+        Industry.top_growth_companies,
+        "Быстрорастущие компании отрасли {name}",
+        "быстрорастущие компании отрасли",
+    ),
+    "i_top_perf": (
+        Industry.top_performing_companies,
+        "Лучшие по динамике компании отрасли {name}",
+        "лучшие по динамике компании отрасли",
+    ),
+}
 
 
-class AnalysisStates(StatesGroup):
-    waiting_ticker_input = State()
+@router.callback_query(AnalysisCallback.filter(node_is("analysis", "company")))
+async def analysis_menu(callback: CallbackQuery, callback_data: AnalysisCallback) -> None:
+    await show_menu(callback, callback_data)
 
 
-@router.callback_query(AnalysisCallback.filter(F.path.endswith("analysis")))
-async def analysis_menu(callback: types.CallbackQuery, callback_data: AnalysisCallback):
-    data = get_path(callback_data.path)
-    kb = build_markup(callback_data, data)
+@router.callback_query(AnalysisCallback.filter(node_is("input_ticker")))
+async def ask_for_ticker(
+    callback: CallbackQuery, callback_data: AnalysisCallback, state: FSMContext
+) -> None:
+    node = node_for(callback_data)
+    await safe_edit(
+        callback,
+        escape(node.input_text or node.text),
+        back_keyboard(callback_data),
+    )
+    await state.set_state(TickerInput.waiting)
+    await state.update_data(origin=Origin.ANALYSIS.value)
 
-    await callback.message.edit_text(
-        data['text'],
-        reply_markup=kb.as_markup()
+
+@router.callback_query(AnalysisCallback.filter(node_is("company_fav")))
+async def favourites_picker(
+    callback: CallbackQuery, callback_data: AnalysisCallback, user_id: int
+) -> None:
+    tickers = await db_call(
+        repositories.favourites.list_tickers, user_id, description="список избранного"
+    )
+    await show_items(
+        callback,
+        callback_data,
+        ticker_items(tickers),
+        TICKER_SUFFIX,
+        target=CompanyCallback(come_through=Origin.ANALYSIS, path="company"),
+        empty_text=EMPTY_FAVOURITES,
+        columns=3,
     )
 
 
-@router.callback_query(AnalysisCallback.filter(F.path.endswith("company")))
-async def company_analysis(callback: types.CallbackQuery, callback_data: AnalysisCallback):
-    data = get_path(callback_data.path)
-    kb = build_markup(callback_data, data)
+# --- секторы ---
 
-    await callback.message.edit_text(
-        data['text'],
-        reply_markup=kb.as_markup()
+
+@router.callback_query(
+    AnalysisCallback.filter(node_is("sector") & ~has_value(SECTOR_SUFFIX))
+)
+async def sector_list(callback: CallbackQuery, callback_data: AnalysisCallback) -> None:
+    sectors = await db_call(repositories.sector.list_all, description="список секторов")
+    await show_items(
+        callback,
+        callback_data,
+        named_items(sectors),
+        SECTOR_SUFFIX,
+        empty_text=EMPTY_SECTORS,
+        columns=1,
     )
 
 
-@router.callback_query(AnalysisCallback.filter(F.path.endswith("input_ticker")))
-async def request_ticker_input(callback: types.CallbackQuery, callback_data: AnalysisCallback, state: FSMContext):
-    data = get_path(callback_data.path)
-    await callback.message.edit_text(
-        data['input_text'],
-        reply_markup=input_markup(callback_data=callback_data).as_markup()
+@router.callback_query(
+    AnalysisCallback.filter(node_is("sector") & has_value(SECTOR_SUFFIX))
+)
+async def sector_menu(callback: CallbackQuery, callback_data: AnalysisCallback) -> None:
+    await show_menu(callback, callback_data)
+
+
+async def _sector(callback_data: AnalysisCallback) -> Sector:
+    sector_id = required_id(callback_data, SECTOR_SUFFIX, entity="сектор")
+    key = await db_call(
+        repositories.sector.get_key, sector_id, description="ключ сектора"
     )
-    await state.update_data(callback_path=callback_data.path)
-    await state.set_state(AnalysisStates.waiting_ticker_input)
-    await callback.answer()
-
-
-@router.callback_query(AnalysisCallback.filter(F.path.endswith("company_fav")))
-async def get_ticker_from_favourites(callback: types.CallbackQuery, callback_data: AnalysisCallback):
-    data = get_path(callback_data.path)
-    user_id = callback.from_user.id
-    tickers = repositories.favourites.get_all_tickers(user_id)
-    kb = build_dynamic_markup(CompanyCallback(come_through='analysis', path='company'), items=tickers, suffix='tckr')
-    await callback.message.edit_text(
-        data['text'],
-        reply_markup=kb.as_markup()
+    if not key:
+        raise ValidationError("Этот сектор больше не доступен, выберите другой.")
+    name = await db_call(
+        repositories.sector.get_name, sector_id, description="имя сектора"
     )
+    return Sector(key, name=name)
 
 
-@router.callback_query(AnalysisCallback.filter(F.path.endswith("sector")))
-async def sector_analysis(callback: types.CallbackQuery, callback_data: AnalysisCallback):
-    data = get_path(callback_data.path)
-    sectors = repositories.sector.get_all()
-    kb = build_dynamic_markup(callback_data, items=sectors, suffix='sctr')
-    await callback.message.edit_text(
-        data['text'],
-        reply_markup=kb.as_markup()
-    )
+@router.callback_query(AnalysisCallback.filter(node_is("s_overview")))
+async def sector_overview(
+    callback: CallbackQuery, callback_data: AnalysisCallback
+) -> None:
+    await ack(callback)
+    sector = await _sector(callback_data)
+    text = await market_call(sector.format_overview, description="обзор сектора")
+    await show_result(callback, callback_data, text)
 
 
-@router.callback_query(AnalysisCallback.filter(F.path.endswith("#sctr")))
-async def sector_analysis(callback: types.CallbackQuery, callback_data: AnalysisCallback):
-    data = get_path('%'.join(callback_data.path.split('%')[:-1]))
-    kb = build_markup(callback_data, data)
-    await callback.message.edit_text(
-        data['text'],
-        reply_markup=kb.as_markup()
-    )
-
-
-@router.callback_query(AnalysisCallback.filter(F.path.endswith("s_industry")))
-async def industry_analysis(callback: types.CallbackQuery, callback_data: AnalysisCallback):
-    data = get_path(callback_data.path)
-    industries = repositories.industry.get_all_by_sector_id(callback_data.path.split('#sctr')[0].split('%')[-1])
-    kb = build_dynamic_markup(callback_data, items=industries, suffix='inds')
-    await callback.message.edit_text(
-        data['text'],
-        reply_markup=kb.as_markup()
+@router.callback_query(AnalysisCallback.filter(node_is("s_industries")))
+async def sector_industries(
+    callback: CallbackQuery, callback_data: AnalysisCallback
+) -> None:
+    await ack(callback, REPORT_PROGRESS)
+    sector = await _sector(callback_data)
+    frame = await market_call(sector.industries, description="отрасли сектора")
+    title = f"Отрасли сектора {sector.display_name}"
+    await send_report(
+        callback,
+        callback_data,
+        render=partial(render_table, frame, title=title),
+        description=title,
     )
 
 
-@router.callback_query(AnalysisCallback.filter(F.path.endswith("#inds")))
-async def industry_analysis(callback: types.CallbackQuery, callback_data: AnalysisCallback):
-    data = get_path('%'.join(callback_data.path.split('%')[:-1]))
-    kb = build_markup(callback_data, data)
-    await callback.message.edit_text(
-        data['text'],
-        reply_markup=kb.as_markup()
+@router.callback_query(AnalysisCallback.filter(node_is("s_top_companies")))
+async def sector_top_companies(
+    callback: CallbackQuery, callback_data: AnalysisCallback
+) -> None:
+    await ack(callback)
+    sector = await _sector(callback_data)
+    text = await market_call(
+        sector.format_top_companies, description="топ компаний сектора"
+    )
+    await show_result(callback, callback_data, text)
+
+
+@router.callback_query(AnalysisCallback.filter(node_is("s_top_etfs")))
+async def sector_top_etfs(
+    callback: CallbackQuery, callback_data: AnalysisCallback
+) -> None:
+    await ack(callback)
+    sector = await _sector(callback_data)
+    text = await market_call(sector.format_top_etfs, description="топ ETF сектора")
+    await show_result(callback, callback_data, text)
+
+
+@router.callback_query(AnalysisCallback.filter(node_is("s_etf_chart")))
+async def sector_etf_chart(
+    callback: CallbackQuery, callback_data: AnalysisCallback
+) -> None:
+    await ack(callback, REPORT_PROGRESS)
+    sector = await _sector(callback_data)
+    ticker = await market_call(
+        sector.leading_etf_ticker, description="ведущий ETF сектора"
+    )
+    company = Company(str(ticker))
+    series = await market_call(
+        company.price_history,
+        SECTOR_ETF_CHART_PERIOD,
+        description=f"котировки {ticker}",
+    )
+    title = f"Ведущий ETF сектора {sector.display_name}: {ticker}"
+    await send_report(
+        callback,
+        callback_data,
+        render=partial(render_line_chart, series, title=title),
+        description=title,
     )
 
 
-@router.callback_query(AnalysisCallback.filter(F.path.endswith("i_overview")))
-async def industry_overview(callback: types.CallbackQuery, callback_data: AnalysisCallback):
-    industry_id = callback_data.path.split('#inds')[0].split('%')[-1]
-    industry = Industry(repositories.industry.get_key_by_id(industry_id))
-    await callback.message.edit_text(
-        industry.get_overview(),
-        reply_markup=callback.message.reply_markup
+# --- отрасли ---
+
+
+@router.callback_query(
+    AnalysisCallback.filter(node_is("s_industry") & ~has_value(INDUSTRY_SUFFIX))
+)
+async def industry_list(
+    callback: CallbackQuery, callback_data: AnalysisCallback
+) -> None:
+    sector_id = required_id(callback_data, SECTOR_SUFFIX, entity="сектор")
+    industries = await db_call(
+        repositories.industry.list_by_sector,
+        sector_id,
+        description="список отраслей",
+    )
+    await show_items(
+        callback,
+        callback_data,
+        named_items(industries),
+        INDUSTRY_SUFFIX,
+        empty_text=EMPTY_INDUSTRIES,
+        columns=1,
     )
 
 
-@router.callback_query(AnalysisCallback.filter(F.path.endswith("i_top")))
-async def industry_top_companies(callback: types.CallbackQuery, callback_data: AnalysisCallback):
-    industry_id = callback_data.path.split('#inds')[0].split('%')[-1]
-    industry = Industry(repositories.industry.get_key_by_id(industry_id))
-    await callback.message.edit_text(
-        industry.get_top_companies(),
-        reply_markup=callback.message.reply_markup
+@router.callback_query(
+    AnalysisCallback.filter(node_is("s_industry") & has_value(INDUSTRY_SUFFIX))
+)
+async def industry_menu(
+    callback: CallbackQuery, callback_data: AnalysisCallback
+) -> None:
+    await show_menu(callback, callback_data)
+
+
+async def _industry(callback_data: AnalysisCallback) -> Industry:
+    industry_id = required_id(callback_data, INDUSTRY_SUFFIX, entity="отрасль")
+    key = await db_call(
+        repositories.industry.get_key, industry_id, description="ключ отрасли"
     )
-
-
-@router.callback_query(AnalysisCallback.filter(F.path.endswith("i_top_growth")))
-async def sector_top_growth_companies(callback: types.CallbackQuery, callback_data: AnalysisCallback):
-    industry_id = callback_data.path.split('#inds')[0].split('%')[-1]
-    industry = Industry(repositories.industry.get_key_by_id(industry_id))
-    await callback.message.edit_text(
-        industry.get_top_growth_companies(),
-        reply_markup=callback.message.reply_markup
+    if not key:
+        raise ValidationError("Эта отрасль больше не доступна, выберите другую.")
+    name = await db_call(
+        repositories.industry.get_name, industry_id, description="имя отрасли"
     )
+    return Industry(key, name=name)
 
 
-@router.callback_query(AnalysisCallback.filter(F.path.endswith("i_top_perf")))
-async def industry_top_performing_companies(callback: types.CallbackQuery, callback_data: AnalysisCallback):
-    industry_id = callback_data.path.split('#inds')[0].split('%')[-1]
-    industry = Industry(repositories.industry.get_key_by_id(industry_id))
-    await callback.message.edit_text(
-        industry.get_top_performing_companies(),
-        reply_markup=callback.message.reply_markup
+@router.callback_query(AnalysisCallback.filter(node_is("i_overview")))
+async def industry_overview(
+    callback: CallbackQuery, callback_data: AnalysisCallback
+) -> None:
+    await ack(callback)
+    industry = await _industry(callback_data)
+    text = await market_call(industry.format_overview, description="обзор отрасли")
+    await show_result(callback, callback_data, text)
+
+
+@router.callback_query(AnalysisCallback.filter(node_is(*INDUSTRY_RANKINGS)))
+async def industry_ranking_report(
+    callback: CallbackQuery, callback_data: AnalysisCallback
+) -> None:
+    """Топ отрасли: таблица и столбчатая диаграмма по ключевой метрике."""
+    await ack(callback, REPORT_PROGRESS)
+    load, title_template, description = INDUSTRY_RANKINGS[last_node(callback_data.path)]
+    industry = await _industry(callback_data)
+    frame = await market_call(load, industry, description=description)
+    name = industry.display_name
+    title = title_template.format(name=name)
+    metric = industry.chart_metric(frame)
+
+    await send_report(
+        callback,
+        callback_data,
+        render=partial(render_table, frame, title=title),
+        description=title,
     )
-
-
-@router.callback_query(AnalysisCallback.filter(F.path.endswith("s_overview")))
-async def sector_overview(callback: types.CallbackQuery, callback_data: AnalysisCallback):
-    sector_id = callback_data.path.split('#sctr')[0].split('%')[-1]
-    sector = Sector(repositories.sector.get_key_by_id(sector_id))
-    await callback.message.edit_text(
-        sector.get_overview(),
-        reply_markup=callback.message.reply_markup
-    )
-
-
-@router.callback_query(AnalysisCallback.filter(F.path.endswith("s_top_companies")))
-async def sector_top_companies(callback: types.CallbackQuery, callback_data: AnalysisCallback):
-    sector_id = callback_data.path.split('#sctr')[0].split('%')[-1]
-    sector = Sector(repositories.sector.get_key_by_id(sector_id))
-    await callback.message.edit_text(
-        sector.get_top_companies(),
-        reply_markup=callback.message.reply_markup
-    )
-
-
-@router.callback_query(AnalysisCallback.filter(F.path.endswith("s_top_etfs")))
-async def sector_top_etfs(callback: types.CallbackQuery, callback_data: AnalysisCallback):
-    sector_id = callback_data.path.split('#sctr')[0].split('%')[-1]
-    sector = Sector(repositories.sector.get_key_by_id(sector_id))
-    await callback.message.edit_text(
-        sector.get_top_etfs(),
-        reply_markup=callback.message.reply_markup
+    chart_title = f"{title} — {metric.name}"
+    await send_report(
+        callback,
+        callback_data,
+        render=partial(render_bar_chart, metric, title=chart_title),
+        description=chart_title,
     )
