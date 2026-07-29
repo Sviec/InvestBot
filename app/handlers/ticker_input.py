@@ -14,6 +14,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
 from app.callbacks import CompanyCallback, ForecastCallback, Origin
+from app.core.errors import NoDataError
 from app.entities.company import Company
 from app.handlers.common import TICKER_PROGRESS, market_call
 from app.handlers.company import company_name, send_company_card
@@ -48,9 +49,15 @@ async def process_ticker(message: Message, state: FSMContext) -> None:
     try:
         # Имя берём из БД, но существование тикера по-прежнему проверяем
         # у провайдера: иначе опечатка всплыла бы только на следующем экране.
-        await market_call(
-            lambda: company.info, description=f"проверка {company.ticker}"
-        )
+        try:
+            await market_call(
+                lambda: company.info, description=f"проверка {company.ticker}"
+            )
+        except NoDataError:
+            # Профиль пуст, но бумагу провайдер подтвердил: пускаем в карточку,
+            # графики и отчёты по ней работают. Отказ здесь означал бы, что
+            # существующий тикер невозможно открыть.
+            logger.info("Открываю %s без профиля провайдера", company.ticker)
         name = await company_name(company)
 
         data = await state.get_data()
