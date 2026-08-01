@@ -1,11 +1,17 @@
-from sqlalchemy import Column, Integer, String
+"""Модель сектора экономики."""
 
-from app.models.base import Base
+from __future__ import annotations
+
+from sqlalchemy import Integer, String
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.models.base import Base, TimestampMixin
 
 
-class Sector(Base):
+class Sector(TimestampMixin, Base):
     __tablename__ = "sector"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String, unique=True, nullable=False)
-    key = Column(String, unique=True, nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    # Ключ, под которым сектор известен провайдеру рыночных данных.
+    key: Mapped[str] = mapped_column(String, nullable=False, unique=True)

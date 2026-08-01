@@ -1,49 +1,42 @@
-from typing import List, Optional, Dict, Any
+"""Репозиторий секторов."""
+
+from __future__ import annotations
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.models.sector import Sector
 from app.repositories.base import BaseRepository
+from app.repositories.dto import NamedItem
 
 
 class SectorRepository(BaseRepository[Sector]):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(Sector)
 
-    def get_all(self) -> dict[Any, Any]:
-        """Получить все секторы"""
-        with self._get_session() as db:
-            return dict(db.query(Sector.id, Sector.name)
-                        .order_by(Sector.name)
-                        .all())
+    def list_all(self) -> list[NamedItem]:
+        def _operation(session: Session) -> list[NamedItem]:
+            rows = session.execute(
+                select(Sector.id, Sector.name).order_by(Sector.name)
+            ).all()
+            return [NamedItem(id=row.id, name=row.name) for row in rows]
 
-    def get_all_names(self) -> List[str]:
-        """Получить все секторы (только имена)"""
-        with self._get_session() as db:
-            return db.scalars(db.query(Sector.name).order_by(Sector.name)).all()
+        return self._read(_operation, "list_all")
 
-    def get_by_name(self, name: str) -> Optional[Sector]:
-        """Найти сектор по имени"""
-        with self._get_session() as db:
-            return db.query(Sector) \
-                .filter(Sector.name == name) \
-                .first()
+    def get_key(self, sector_id: int) -> str | None:
+        """Ключ сектора у провайдера рыночных данных."""
 
-    def get_by_id(self, sector_id: int) -> Optional[Sector]:
-        """Найти сектор по id"""
-        with self._get_session() as db:
-            return db.query(Sector) \
-                .filter(Sector.id == sector_id) \
-                .first().scalar()
+        def _operation(session: Session) -> str | None:
+            return session.execute(
+                select(Sector.key).where(Sector.id == sector_id)
+            ).scalar_one_or_none()
 
-    def get_name_by_id(self, sector_id: int) -> str:
-        """Найти сектор по id"""
-        with self._get_session() as db:
-            return str(db.query(Sector.name)
-                       .filter(Sector.id == sector_id)
-                       .scalar())
+        return self._read(_operation, "get_key")
 
-    def get_key_by_id(self, sector_id: int) -> str:
-        """Найти ключ сектора по id"""
-        with self._get_session() as db:
-            return str(db.query(Sector.key)
-                       .filter(Sector.id == sector_id)
-                       .scalar())
+    def get_name(self, sector_id: int) -> str | None:
+        def _operation(session: Session) -> str | None:
+            return session.execute(
+                select(Sector.name).where(Sector.id == sector_id)
+            ).scalar_one_or_none()
+
+        return self._read(_operation, "get_name")
