@@ -38,6 +38,7 @@ from app.repositories.dto import (
     TransactionDTO,
 )
 from app.states import PortfolioInput
+from app.utils.i18n import t
 from app.utils.messaging import safe_edit
 from app.utils.text import escape, format_number, format_percent, join_lines
 from app.utils.validators import parse_entity_id, parse_trade
@@ -46,27 +47,21 @@ logger = logging.getLogger(__name__)
 
 router = Router(name="portfolio")
 
-EMPTY_POSITIONS = "Открытых позиций пока нет. Добавьте сделку в портфель."
-EMPTY_HISTORY = "Сделок пока нет."
-WRONG_INPUT_TYPE = "Пришлите данные текстом."
-QUOTE_PROGRESS = "Обновляю котировки…"
-
-ADD_RESPONSES = {
-    AddTransactionResult.ADDED: "Сделка добавлена.",
-    AddTransactionResult.COMPANY_NOT_FOUND: (
-        "Тикер отсутствует в справочнике компаний, добавить сделку не получится."
-    ),
-    AddTransactionResult.NOT_ENOUGH_SHARES: (
-        "Недостаточно бумаг для продажи: на руках меньше, чем указано в сделке."
-    ),
+_ADD_RESPONSE_KEYS = {
+    AddTransactionResult.ADDED: "handlers.portfolio.add.ok",
+    AddTransactionResult.COMPANY_NOT_FOUND: "handlers.portfolio.add.company_missing",
+    AddTransactionResult.NOT_ENOUGH_SHARES: "handlers.portfolio.add.not_enough",
 }
 
-DELETE_RESPONSES = {
-    DeleteTransactionResult.DELETED: "Сделка удалена.",
-    DeleteTransactionResult.NOT_FOUND: "Сделка с таким номером не найдена.",
+_DELETE_RESPONSE_KEYS = {
+    DeleteTransactionResult.DELETED: "handlers.portfolio.delete.ok",
+    DeleteTransactionResult.NOT_FOUND: "handlers.portfolio.delete.not_found",
 }
 
-SIDE_LABELS = {"BUY": "покупка", "SELL": "продажа"}
+_SIDE_KEYS = {
+    "BUY": "handlers.portfolio.side.buy",
+    "SELL": "handlers.portfolio.side.sell",
+}
 _ZERO = Decimal("0")
 
 
@@ -81,14 +76,16 @@ async def portfolio_menu(
 async def positions_list(
     callback: CallbackQuery, callback_data: ProfileCallback, user_id: int
 ) -> None:
-    await ack(callback, QUOTE_PROGRESS)
+    await ack(callback, t("handlers.portfolio.quote_progress"))
     positions = await db_call(
         repositories.portfolio.list_positions,
         user_id,
         description="позиции портфеля",
     )
     if not positions:
-        await show_result(callback, callback_data, escape(EMPTY_POSITIONS))
+        await show_result(
+            callback, callback_data, escape(t("handlers.portfolio.empty_positions"))
+        )
         return
     quotes, truncated = await _load_quotes(positions)
     await show_result(
@@ -102,14 +99,16 @@ async def positions_list(
 async def portfolio_summary(
     callback: CallbackQuery, callback_data: ProfileCallback, user_id: int
 ) -> None:
-    await ack(callback, QUOTE_PROGRESS)
+    await ack(callback, t("handlers.portfolio.quote_progress"))
     positions = await db_call(
         repositories.portfolio.list_positions,
         user_id,
         description="сводка портфеля",
     )
     if not positions:
-        await show_result(callback, callback_data, escape(EMPTY_POSITIONS))
+        await show_result(
+            callback, callback_data, escape(t("handlers.portfolio.empty_positions"))
+        )
         return
     quotes, truncated = await _load_quotes(positions)
     await show_result(
@@ -129,7 +128,9 @@ async def transactions_history(
         description="история сделок",
     )
     if not transactions:
-        await show_result(callback, callback_data, escape(EMPTY_HISTORY))
+        await show_result(
+            callback, callback_data, escape(t("handlers.portfolio.empty_history"))
+        )
         return
     await show_result(callback, callback_data, _format_history(transactions))
 
@@ -172,7 +173,7 @@ async def ask_add_trade_from_company(
     prompt = node.input_text or node.text
     await safe_edit(
         callback,
-        escape(f"{prompt}\nТикер: {ticker}"),
+        escape(f"{prompt}\n{t('handlers.portfolio.preset_ticker', ticker=ticker)}"),
         back_keyboard(callback_data),
     )
     await state.set_state(PortfolioInput.waiting)
@@ -187,7 +188,9 @@ async def process_portfolio_input(
     action = str(data.get("action", "add"))
 
     if action == "delete":
-        transaction_id = parse_entity_id(message.text or "", entity="сделки")
+        transaction_id = parse_entity_id(
+            message.text or "", entity=t("handlers.entity.trade")
+        )
         result = await db_call(
             repositories.portfolio.delete_transaction,
             user_id,
@@ -195,7 +198,7 @@ async def process_portfolio_input(
             description="удаление сделки",
         )
         await state.clear()
-        await message.answer(DELETE_RESPONSES[result])
+        await message.answer(t(_DELETE_RESPONSE_KEYS[result]))
         return
 
     raw = (message.text or "").strip()
@@ -219,12 +222,12 @@ async def process_portfolio_input(
         description="добавление сделки",
     )
     await state.clear()
-    await message.answer(ADD_RESPONSES[result])
+    await message.answer(t(_ADD_RESPONSE_KEYS[result]))
 
 
 @router.message(PortfolioInput.waiting)
 async def wrong_portfolio_input_type(message: Message) -> None:
-    await message.answer(WRONG_INPUT_TYPE)
+    await message.answer(t("handlers.portfolio.wrong_type"))
 
 
 async def _load_quotes(
@@ -276,13 +279,11 @@ def _valuation_note(*, truncated: bool, priced: int, total: int) -> str | None:
     if truncated:
         limit = get_settings().portfolio_valuation_limit
         parts.append(
-            f"Рыночная оценка доступна для первых {limit} позиций "
-            f"из {total}; остальные показаны без котировок."
+            t("handlers.portfolio.note.truncated", limit=limit, total=total)
         )
     elif priced < total:
         parts.append(
-            f"Котировки получены по {priced} из {total} позиций; "
-            "остальные показаны без рыночной оценки."
+            t("handlers.portfolio.note.partial", priced=priced, total=total)
         )
     return " ".join(parts) if parts else None
 
@@ -300,29 +301,40 @@ def _format_positions(
         market_value, pnl, ratio = _unrealized(position, quote)
         lines = [
             f"<b>{escape(position.ticker)}</b> — {escape(position.name)}",
-            f"количество: {_format_decimal(position.quantity, digits=4)}",
-            f"средняя цена: {_format_decimal(position.average_price)}",
-            (
-                f"вложено: {_format_decimal(position.invested)} "
-                f"{escape(position.currency)}"
+            t(
+                "handlers.portfolio.field.quantity",
+                value=_format_decimal(position.quantity, digits=4),
+            ),
+            t(
+                "handlers.portfolio.field.avg_price",
+                value=_format_decimal(position.average_price),
+            ),
+            t(
+                "handlers.portfolio.field.invested",
+                value=_format_decimal(position.invested),
+                currency=escape(position.currency),
             ),
         ]
         if market_value is not None and pnl is not None:
             priced += 1
             lines.append(
-                f"рыночная стоимость: {_format_decimal(market_value)} "
-                f"{escape(position.currency)}"
+                t(
+                    "handlers.portfolio.field.market_value",
+                    value=_format_decimal(market_value),
+                    currency=escape(position.currency),
+                )
             )
-            pnl_line = (
-                f"нереализованный P&amp;L: {_format_signed(pnl)} "
-                f"{escape(position.currency)}"
+            pnl_line = t(
+                "handlers.portfolio.field.unrealized",
+                value=_format_signed(pnl),
+                currency=escape(position.currency),
             )
             percent = format_percent(ratio) if ratio is not None else None
             if percent:
                 pnl_line += f" ({percent})"
             lines.append(pnl_line)
         else:
-            lines.append("рыночная оценка недоступна")
+            lines.append(t("handlers.portfolio.field.no_valuation"))
         blocks.append(join_lines(lines))
 
     note = _valuation_note(
@@ -357,8 +369,12 @@ def _format_summary(
         unrealized_total += pnl
 
     lines = [
-        f"<b>Открытых позиций:</b> {len(positions)}",
-        f"<b>Вложено:</b> {_format_decimal(invested)} {escape(currency)}",
+        t("handlers.portfolio.summary.open_count", count=len(positions)),
+        t(
+            "handlers.portfolio.summary.invested",
+            value=_format_decimal(invested),
+            currency=escape(currency),
+        ),
     ]
     if priced:
         invested_priced = sum(
@@ -369,23 +385,30 @@ def _format_summary(
             unrealized_total / invested_priced if invested_priced > _ZERO else None
         )
         lines.append(
-            f"<b>Рыночная стоимость:</b> {_format_decimal(market_total)} "
-            f"{escape(currency)}"
+            t(
+                "handlers.portfolio.summary.market",
+                value=_format_decimal(market_total),
+                currency=escape(currency),
+            )
         )
-        pnl_line = (
-            f"<b>Нереализованный P&amp;L:</b> {_format_signed(unrealized_total)} "
-            f"{escape(currency)}"
+        pnl_line = t(
+            "handlers.portfolio.summary.unrealized",
+            value=_format_signed(unrealized_total),
+            currency=escape(currency),
         )
         percent = format_percent(ratio) if ratio is not None else None
         if percent:
             pnl_line += f" ({percent})"
         lines.append(pnl_line)
     else:
-        lines.append("<b>Рыночная стоимость:</b> недоступна")
+        lines.append(t("handlers.portfolio.summary.market_na"))
 
     lines.append(
-        f"<b>Реализованный P&amp;L</b> (по открытым): "
-        f"{_format_decimal(realized)} {escape(currency)}"
+        t(
+            "handlers.portfolio.summary.realized",
+            value=_format_decimal(realized),
+            currency=escape(currency),
+        )
     )
 
     note = _valuation_note(
@@ -399,7 +422,8 @@ def _format_summary(
 def _format_history(transactions: list[TransactionDTO]) -> str:
     lines: list[str] = []
     for tx in transactions:
-        side = SIDE_LABELS.get(tx.side, tx.side)
+        side_key = _SIDE_KEYS.get(tx.side)
+        side = t(side_key) if side_key else tx.side
         platform = f" · {escape(tx.platform)}" if tx.platform else ""
         lines.append(
             (
