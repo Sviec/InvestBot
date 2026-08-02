@@ -1,0 +1,340 @@
+{
+  "main_menu": {
+    "text": "Что хотите узнать?",
+    "buttons": {
+      "forecast": "Прогноз",
+      "analysis": "Анализ",
+      "profile": "Профиль",
+      "reference": "Справка"
+    },
+    "layout": ["Прогноз", "Анализ", "Профиль", "Справка"]
+  },
+  "analysis": {
+    "text": "Что хотите проанализировать?",
+    "buttons": {
+      "sector": {
+        "input_text": "Выберите сектор",
+        "text": "Выбор сектора",
+        "button_text": "Сектор",
+        "buttons": {
+          "s_industry": {
+            "input_text": "Выберите отрасль",
+            "text": "Выбор отрасли",
+            "button_text": "Отрасли",
+            "buttons": {
+              "i_overview": {
+                "text": "Общие сведения об отрасли",
+                "button_text": "Обзор"
+              },
+              "i_top": {
+                "text": "Топ компаний",
+                "button_text": "Топ компаний"
+              },
+              "i_top_growth": {
+                "text": "Топ быстрорастущих компаний",
+                "button_text": "Топ быстрорастущих компаний"
+              },
+              "i_top_perf": {
+                "text": "Компании с лучшими показатели",
+                "button_text": "Компании с лучшими показатели"
+              }
+            }
+          },
+          "s_overview": {
+            "text": "Общие сведения о секторе",
+            "button_text": "Обзор"
+          },
+          "s_industries": {
+            "text": "Отрасли сектора",
+            "button_text": "Отрасли (вес)"
+          },
+          "s_top_companies": {
+            "text": "Топ компаний",
+            "button_text": "Топ компаний"
+          },
+          "s_top_etfs": {
+            "text": "Топ ETF",
+            "button_text": "Топ ETF"
+          },
+          "s_etf_chart": {
+            "text": "График ведущего ETF",
+            "button_text": "Динамика ETF"
+          }
+        }
+      },
+      "company": {
+        "text": "Выберите метод",
+        "button_text": "Компания",
+        "buttons": {
+          "input_ticker": {
+            "input_text": "Введите компанию",
+            "text": "Что хотите проанализировать?\nВыбранная компания: ",
+            "button_text": "Ввести тикер"
+          },
+          "company_fav": {
+            "text": "Выберите компанию",
+            "button_text": "Выбрать из избранного"
+          }
+        }
+      }
+    }
+  },
+  "forecast": {
+    "text": "Выберите метод",
+    "buttons": {
+      "favorites": {
+        "text": "Выберите компанию",
+        "button_text": "Выбрать из избранного"
+      },
+      "manual": {
+        "input_text": "Введите тикер компании",
+        "text": "Ввод тикера",
+        "button_text": "Ввести тикер"
+      }
+    }
+  },
+  "profile": {
+    "text": "Что хотите посмотреть?",
+    "buttons": {
+      "portfolio": {
+        "text": "Портфель",
+        "button_text": "Портфель",
+        "buttons": {
+          "pf_positions": {
+            "text": "Позиции",
+            "button_text": "Позиции"
+          },
+          "pf_summary": {
+            "text": "Сводка",
+            "button_text": "Сводка"
+          },
+          "pf_history": {
+            "text": "История сделок",
+            "button_text": "История сделок"
+          },
+          "pf_add": {
+            "text": "Добавить сделку",
+            "button_text": "Добавить сделку",
+            "input_text": "Введите сделку одной строкой.\nФормат: тикер количество цена [дата] [buy|sell] [площадка]\nНапример: AAPL 10 150.5 2024-01-15 buy nasdaq"
+          },
+          "pf_del": {
+            "text": "Удалить сделку",
+            "button_text": "Удалить сделку",
+            "input_text": "Введите номер сделки из истории, например: 42"
+          }
+        }
+      },
+      "favourites": {
+        "text": "Избранное",
+        "button_text": "Избранное"
+      },
+      "stats": {
+        "text": "Статистика",
+        "button_text": "Статистика"
+      }
+    }
+  },
+  "reference": {
+    "text": "Что хотите узнать?",
+    "buttons": {
+      "fundamental_analysis": {
+        "text": "Фундаментальный анализ",
+        "button_text": "Фундаментальный анализ",
+        "url": "https://telegra.ph/Gajd-po-portfelyu-02-23"
+      },
+      "tech_indicators": {
+        "text": "Техиндикаторы",
+        "button_text": "Техиндикаторы",
+        "url": "https://telegra.ph/Tehnicheskij-analiz-04-18"
+      },
+      "multipliers": {
+        "text": "Мультипликаторы",
+        "button_text": "Мультипликаторы",
+        "url": "https://telegra.ph/Multiplikatory-04-19"
+      }
+    }
+  },
+  "company": {
+    "text": "Компания для анализа:",
+    "button_text": "Компания",
+    "buttons": {
+      "c_info": {
+        "text": "Основная информация",
+        "button_text": "Основная информация",
+        "buttons": {
+          "i_about": {
+            "text": "О компании",
+            "button_text": "О компании"
+          },
+          "i_desc": {
+            "text": "Описание",
+            "button_text": "Описание"
+          },
+          "i_divs": {
+            "text": "Дивиденды",
+            "button_text": "Дивиденды"
+          }
+        }
+      },
+      "c_graph": {
+        "text": "График",
+        "button_text": "График",
+        "buttons": {
+          "g_full": {
+            "text": "Весь период",
+            "button_text": "Весь период"
+          },
+          "g_period": {
+            "text": "Выберите период",
+            "button_text": "Выбранный период",
+            "buttons": {
+              "g_1mo": {
+                "text": "Месяц",
+                "button_text": "Месяц"
+              },
+              "g_6mo": {
+                "text": "Полгода",
+                "button_text": "Полгода"
+              },
+              "g_1y": {
+                "text": "Год",
+                "button_text": "Год"
+              },
+              "g_5y": {
+                "text": "Пять лет",
+                "button_text": "Пять лет"
+              }
+            }
+          }
+        }
+      },
+      "c_add_info": {
+        "text": "Дополнительная информация",
+        "button_text": "Дополнительная информация",
+        "buttons": {
+          "ai_mh": {
+            "text": "Основные держатели",
+            "button_text": "Основные держатели"
+          },
+          "ai_ih": {
+            "text": "Институциональные держатели",
+            "button_text": "Институциональные держатели"
+          },
+          "ai_news": {
+            "text": "Новости",
+            "button_text": "Новости"
+          }
+        }
+      },
+      "c_fa": {
+        "text": "Какие данные хотите получить?",
+        "button_text": "Фундаментальный анализ",
+        "buttons": {
+          "fa_key": {
+            "text": "Ключевые показатели",
+            "button_text": "Ключевые показатели"
+          },
+          "fa_fin": {
+            "text": "Выберите отчетный период",
+            "button_text": "Финансовая отчетность",
+            "buttons": {
+              "fin_year": {
+                "text": "Годовая",
+                "button_text": "Годовая"
+              },
+              "fin_quarter": {
+                "text": "Квартальная",
+                "button_text": "Квартальная"
+              }
+            }
+          },
+          "c_bs": {
+            "text": "Выберите отчетный период",
+            "button_text": "Балансовая отчетность",
+            "buttons": {
+              "bs_year": {
+                "text": "Годовая",
+                "button_text": "Годовая"
+              },
+              "bs_quarter": {
+                "text": "Квартальная",
+                "button_text": "Квартальная"
+              }
+            }
+          },
+          "c_cf": {
+            "text": "Выберите отчетный период",
+            "button_text": "Денежный поток",
+            "buttons": {
+              "cf_year": {
+                "text": "Годовая",
+                "button_text": "Годовая"
+              },
+              "cf_quarter": {
+                "text": "Квартальная",
+                "button_text": "Квартальная"
+              }
+            }
+          },
+          "c_earns": {
+            "text": "Выберите отчетный период",
+            "button_text": "Отчет о прибыли",
+            "buttons": {
+              "inc_year": {
+                "text": "Годовая",
+                "button_text": "Годовая"
+              },
+              "inc_quarter": {
+                "text": "Квартальная",
+                "button_text": "Квартальная"
+              }
+            }
+          }
+        }
+      },
+      "c_ti": {
+        "text": "Какие данные хотите получить?",
+        "button_text": "Тех индикаторы",
+        "buttons": {
+          "ti_ma": {
+            "text": "Скользящая средняя",
+            "button_text": "Скользящая средняя"
+          },
+          "ti_MACD": {
+            "text": "MACD",
+            "button_text": "MACD"
+          },
+          "ti_RSI": {
+            "text": "RSI",
+            "button_text": "RSI"
+          },
+          "ti_momentum": {
+            "text": "Momentum",
+            "button_text": "Momentum"
+          },
+          "ti_bal_vlm": {
+            "text": "Балансовый обьем",
+            "button_text": "Балансовый обьем"
+          }
+        }
+      },
+      "c_multipliers": {
+        "text": "Мультипликаторы",
+        "button_text": "Мультипликаторы"
+      },
+      "buy": {
+        "text": "Добавить в портфель",
+        "button_text": "Добавить в портфель",
+        "input_text": "Введите количество и цену одной строкой.\nНапример: 10 150.5\nМожно добавить дату, сторону и площадку: 10 150.5 2024-01-15 buy nasdaq"
+      },
+      "add": {
+        "text": "Добавить в избранное",
+        "button_text": "Добавить в избранное"
+      },
+      "remove": {
+        "text": "Удалить из избранного",
+        "button_text": "Удалить из избранного"
+      }
+    }
+  }
+}
