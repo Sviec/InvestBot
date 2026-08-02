@@ -16,11 +16,11 @@ from aiogram.types import Message
 from app.callbacks import CompanyCallback, ForecastCallback, Origin
 from app.core.errors import NoDataError
 from app.entities.company import Company
-from app.handlers.common import TICKER_PROGRESS, market_call
+from app.handlers.common import market_call
 from app.handlers.company import company_name, send_company_card
-from app.handlers.forecast import FORECAST_STUB
 from app.keyboards.make_markup import back_keyboard
 from app.states import TickerInput
+from app.utils.i18n import t
 from app.utils.messaging import delete_silently
 from app.utils.text import escape
 from app.utils.validators import normalize_ticker
@@ -28,8 +28,6 @@ from app.utils.validators import normalize_ticker
 logger = logging.getLogger(__name__)
 
 router = Router(name="ticker_input")
-
-WRONG_INPUT_TYPE = "Пришлите тикер текстом, например AAPL."
 
 
 def _origin(raw: object) -> Origin:
@@ -45,7 +43,7 @@ async def process_ticker(message: Message, state: FSMContext) -> None:
     ticker = normalize_ticker(message.text)
     company = Company(ticker)
     # Индикатор вместо «часиков» на кнопке: здесь событие — сообщение, не callback.
-    status = await message.answer(TICKER_PROGRESS)
+    status = await message.answer(t("handlers.progress.ticker"))
     try:
         # Имя берём из БД, но существование тикера по-прежнему проверяем
         # у провайдера: иначе опечатка всплыла бы только на следующем экране.
@@ -67,7 +65,7 @@ async def process_ticker(message: Message, state: FSMContext) -> None:
         if origin is Origin.FORECAST:
             callback_data = ForecastCallback(path=f"forecast%manual%{ticker}#tckr")
             await message.answer(
-                FORECAST_STUB.format(name=escape(name)),
+                t("handlers.forecast.stub", name=escape(name)),
                 reply_markup=back_keyboard(callback_data),
             )
             return
@@ -82,4 +80,4 @@ async def process_ticker(message: Message, state: FSMContext) -> None:
 
 @router.message(TickerInput.waiting)
 async def wrong_input_type(message: Message) -> None:
-    await message.answer(WRONG_INPUT_TYPE)
+    await message.answer(t("handlers.ticker.wrong_type"))

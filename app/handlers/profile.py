@@ -14,7 +14,6 @@ from app.callbacks import TICKER_SUFFIX, CompanyCallback, Origin, ProfileCallbac
 from app.data.config import get_settings
 from app.entities.company import Company
 from app.handlers.common import (
-    REPORT_PROGRESS,
     ack,
     db_call,
     market_call,
@@ -34,17 +33,11 @@ from app.services.stats import (
     format_user_stats,
     sector_allocation,
 )
+from app.utils.i18n import t
 
 logger = logging.getLogger(__name__)
 
 router = Router(name="profile")
-
-EMPTY_FAVOURITES = (
-    "В избранном пока пусто. Откройте карточку компании и нажмите "
-    "«Добавить в избранное»."
-)
-
-STATS_PROGRESS = "Считаю статистику…"
 
 
 @router.callback_query(ProfileCallback.filter(node_is("profile")))
@@ -65,7 +58,7 @@ async def favourites_list(
         ticker_items(tickers),
         TICKER_SUFFIX,
         target=CompanyCallback(come_through=Origin.PROFILE, path="company"),
-        empty_text=EMPTY_FAVOURITES,
+        empty_text=t("handlers.favourites.empty"),
         columns=3,
     )
 
@@ -74,7 +67,7 @@ async def favourites_list(
 async def user_stats(
     callback: CallbackQuery, callback_data: ProfileCallback, user_id: int
 ) -> None:
-    await ack(callback, STATS_PROGRESS)
+    await ack(callback, t("handlers.stats.progress"))
 
     positions = cast(
         list[PositionDTO],
@@ -135,14 +128,14 @@ async def user_stats(
         await show_result(callback, callback_data, text)
         return
 
-    await ack(callback, REPORT_PROGRESS)
+    await ack(callback, t("handlers.progress.report"))
     await send_report(
         callback,
         callback_data,
         render=partial(
             render_pie_chart,
             allocation,
-            title="Портфель по секторам",
+            title=t("handlers.stats.pie_title"),
         ),
         description="распределение по секторам",
         caption=text,

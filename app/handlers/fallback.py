@@ -14,19 +14,12 @@ from aiogram.types import CallbackQuery, Message
 
 from app.callbacks import NoopCallback
 from app.keyboards.make_markup import main_menu_keyboard
+from app.utils.i18n import t
 from app.utils.messaging import safe_edit
 
 logger = logging.getLogger(__name__)
 
 router = Router(name="fallback")
-
-OUTDATED = (
-    "Это сообщение устарело — структура меню изменилась.\n"
-    "Открываю главное меню."
-)
-UNKNOWN_MESSAGE = (
-    "Я понимаю только команды и кнопки. Наберите /menu, чтобы открыть меню."
-)
 
 
 @router.callback_query(NoopCallback.filter())
@@ -38,9 +31,11 @@ async def noop(callback: CallbackQuery) -> None:
 @router.callback_query()
 async def outdated_button(callback: CallbackQuery) -> None:
     logger.info("Не распознаны callback-данные: %r", callback.data)
-    await safe_edit(callback, OUTDATED, main_menu_keyboard())
+    await safe_edit(callback, t("handlers.outdated_callback"), main_menu_keyboard())
 
 
 @router.message()
 async def unknown_message(message: Message) -> None:
-    await message.answer(UNKNOWN_MESSAGE, reply_markup=main_menu_keyboard())
+    await message.answer(
+        t("handlers.unknown_message"), reply_markup=main_menu_keyboard()
+    )
