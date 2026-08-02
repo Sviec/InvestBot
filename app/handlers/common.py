@@ -25,6 +25,7 @@ from app.data.config import get_settings
 from app.keyboards.make_markup import back_keyboard, items_keyboard, menu_keyboard
 from app.repositories.dto import NamedItem
 from app.services.reports import temporary_report
+from app.utils.i18n import t
 from app.utils.messaging import delete_silently, safe_edit
 from app.utils.navigation import MenuNode, SEGMENT_SEPARATOR, SUFFIX_SEPARATOR, resolve
 from app.utils.text import TELEGRAM_CAPTION_LIMIT, escape
@@ -36,9 +37,6 @@ _market_limiter: asyncio.Semaphore | None = None
 
 # Дольше секунды — INFO, иначе DEBUG: иначе лог тонет в шуме быстрых стадий.
 _SLOW_STAGE_SECONDS = 1.0
-
-REPORT_PROGRESS = "Готовлю отчёт…"
-TICKER_PROGRESS = "Проверяю тикер…"
 
 
 # --- фильтры маршрутизации ---
@@ -295,7 +293,7 @@ def required_ticker(callback_data: BaseCallback) -> str:
     """Тикер из пути или ошибка, если путь собран некорректно."""
     ticker = callback_data.ticker
     if not ticker:
-        raise ValidationError("Сначала выберите компанию.")
+        raise ValidationError(t("handlers.select_company"))
     return ticker
 
 
@@ -304,7 +302,7 @@ def required_id(callback_data: BaseCallback, suffix: str, *, entity: str) -> int
 
     raw = callback_data.arg(suffix)
     if raw is None:
-        raise ValidationError(f"Сначала выберите {entity}.")
+        raise ValidationError(t("handlers.select_entity", entity=entity))
     return parse_entity_id(raw, entity=entity)
 
 

@@ -19,7 +19,6 @@ from app.callbacks import CompanyCallback
 from app.entities.company import Company
 from app.entities import indicators as ti
 from app.handlers.common import (
-    REPORT_PROGRESS,
     ack,
     db_call,
     has_value,
@@ -36,6 +35,7 @@ from app.keyboards.make_markup import back_keyboard, menu_keyboard
 from app.repositories import repositories
 from app.repositories.dto import AddFavouriteResult, RemoveFavouriteResult
 from app.services.reports import render_indicator_chart, render_line_chart, render_table
+from app.utils.i18n import t
 from app.utils.messaging import safe_edit
 from app.utils.text import escape
 
@@ -72,58 +72,58 @@ class TableReport:
     """Описание табличного отчёта: откуда взять данные и как подписать."""
 
     load: Callable[[Company], pd.DataFrame]
-    title: str
+    title_key: str
 
 
 TABLE_REPORTS: dict[str, TableReport] = {
     "fin_year": TableReport(
         lambda company: company.financials(quarterly=False),
-        "Финансовая отчётность {name}, по годам",
+        "handlers.company.table.fin_year",
     ),
     "fin_quarter": TableReport(
         lambda company: company.financials(quarterly=True),
-        "Финансовая отчётность {name}, по кварталам",
+        "handlers.company.table.fin_quarter",
     ),
     "bs_year": TableReport(
         lambda company: company.balance_sheet(quarterly=False),
-        "Балансовая отчётность {name}, по годам",
+        "handlers.company.table.bs_year",
     ),
     "bs_quarter": TableReport(
         lambda company: company.balance_sheet(quarterly=True),
-        "Балансовая отчётность {name}, по кварталам",
+        "handlers.company.table.bs_quarter",
     ),
     "cf_year": TableReport(
         lambda company: company.cash_flow(quarterly=False),
-        "Денежный поток {name}, по годам",
+        "handlers.company.table.cf_year",
     ),
     "cf_quarter": TableReport(
         lambda company: company.cash_flow(quarterly=True),
-        "Денежный поток {name}, по кварталам",
+        "handlers.company.table.cf_quarter",
     ),
     "inc_year": TableReport(
         lambda company: company.income_statement(quarterly=False),
-        "Отчёт о прибыли {name}, по годам",
+        "handlers.company.table.inc_year",
     ),
     "inc_quarter": TableReport(
         lambda company: company.income_statement(quarterly=True),
-        "Отчёт о прибыли {name}, по кварталам",
+        "handlers.company.table.inc_quarter",
     ),
     "ai_mh": TableReport(
         lambda company: company.major_holders(),
-        "Основные держатели акций {name}",
+        "handlers.company.table.major_holders",
     ),
     "ai_ih": TableReport(
         lambda company: company.institutional_holders(),
-        "Институциональные держатели акций {name}",
+        "handlers.company.table.inst_holders",
     ),
 }
 
 CHART_PERIODS: dict[str, tuple[str, str]] = {
-    "g_full": ("max", "за всё время"),
-    "g_1mo": ("1mo", "за месяц"),
-    "g_6mo": ("6mo", "за полгода"),
-    "g_1y": ("1y", "за год"),
-    "g_5y": ("5y", "за пять лет"),
+    "g_full": ("max", "handlers.company.chart.period_full"),
+    "g_1mo": ("1mo", "handlers.company.chart.period_1mo"),
+    "g_6mo": ("6mo", "handlers.company.chart.period_6mo"),
+    "g_1y": ("1y", "handlers.company.chart.period_1y"),
+    "g_5y": ("5y", "handlers.company.chart.period_5y"),
 }
 
 # Двух лет хватает на MA200; отдельный запрос к провайдеру не нужен —
@@ -145,7 +145,7 @@ class IndicatorChart:
 class IndicatorReport:
     """Описание техиндикатора: как подписать и как посчитать по OHLCV."""
 
-    title: str
+    title_key: str
     build: Callable[[pd.DataFrame], IndicatorChart]
 
 
@@ -192,14 +192,12 @@ def _obv_chart(frame: pd.DataFrame) -> IndicatorChart:
 
 
 INDICATORS: dict[str, IndicatorReport] = {
-    "ti_ma": IndicatorReport("Скользящие средние {name}", _ma_chart),
-    "ti_MACD": IndicatorReport("MACD {name}", _macd_chart),
-    "ti_RSI": IndicatorReport("RSI {name}", _rsi_chart),
-    "ti_momentum": IndicatorReport("Momentum {name}", _momentum_chart),
-    "ti_bal_vlm": IndicatorReport("OBV {name}", _obv_chart),
+    "ti_ma": IndicatorReport("handlers.company.indicator.ma", _ma_chart),
+    "ti_MACD": IndicatorReport("handlers.company.indicator.macd", _macd_chart),
+    "ti_RSI": IndicatorReport("handlers.company.indicator.rsi", _rsi_chart),
+    "ti_momentum": IndicatorReport("handlers.company.indicator.momentum", _momentum_chart),
+    "ti_bal_vlm": IndicatorReport("handlers.company.indicator.obv", _obv_chart),
 }
-
-SELECT_COMPANY = "Сначала выберите компанию."
 
 
 async def company_name(company: Company) -> str:
@@ -249,7 +247,9 @@ async def company_without_ticker(
     callback: CallbackQuery, callback_data: CompanyCallback
 ) -> None:
     """Страховка: путь карточки без тикера означает устаревшую кнопку."""
-    await safe_edit(callback, SELECT_COMPANY, back_keyboard(callback_data))
+    await safe_edit(
+        callback, t("handlers.select_company"), back_keyboard(callback_data)
+    )
 
 
 @router.callback_query(CompanyCallback.filter(node_is(*SUBMENUS)))
@@ -276,7 +276,7 @@ async def company_text_action(
 async def company_table_report(
     callback: CallbackQuery, callback_data: CompanyCallback
 ) -> None:
-    await ack(callback, REPORT_PROGRESS)
+    await ack(callback, t("handlers.progress.report"))
     report = TABLE_REPORTS[last_node(callback_data.path)]
     company = Company(required_ticker(callback_data))
 
@@ -284,7 +284,7 @@ async def company_table_report(
         report.load, company, description=f"отчёт {company.ticker}"
     )
     name = await company_name(company)
-    title = report.title.format(name=name)
+    title = t(report.title_key, name=name)
 
     await send_report(
         callback,
@@ -296,15 +296,19 @@ async def company_table_report(
 
 @router.callback_query(CompanyCallback.filter(node_is(*CHART_PERIODS)))
 async def company_chart(callback: CallbackQuery, callback_data: CompanyCallback) -> None:
-    await ack(callback, REPORT_PROGRESS)
-    period, label = CHART_PERIODS[last_node(callback_data.path)]
+    await ack(callback, t("handlers.progress.report"))
+    period, period_key = CHART_PERIODS[last_node(callback_data.path)]
     company = Company(required_ticker(callback_data))
 
     series = await market_call(
         company.price_history, period, description=f"котировки {company.ticker}"
     )
     name = await company_name(company)
-    title = f"Котировки {name} {label}"
+    title = t(
+        "handlers.company.chart.title",
+        name=name,
+        period_label=t(period_key),
+    )
 
     await send_report(
         callback,
@@ -318,7 +322,7 @@ async def company_chart(callback: CallbackQuery, callback_data: CompanyCallback)
 async def company_indicator(
     callback: CallbackQuery, callback_data: CompanyCallback
 ) -> None:
-    await ack(callback, REPORT_PROGRESS)
+    await ack(callback, t("handlers.progress.report"))
     report = INDICATORS[last_node(callback_data.path)]
     company = Company(required_ticker(callback_data))
 
@@ -329,7 +333,7 @@ async def company_indicator(
     )
     chart = report.build(frame)
     name = await company_name(company)
-    title = report.title.format(name=name)
+    title = t(report.title_key, name=name)
 
     await send_report(
         callback,
@@ -358,10 +362,12 @@ async def add_to_favourites(
         description="добавление в избранное",
     )
     responses = {
-        AddFavouriteResult.ADDED: f"{ticker} добавлен в избранное",
-        AddFavouriteResult.ALREADY_EXISTS: f"{ticker} уже в избранном",
-        AddFavouriteResult.COMPANY_NOT_FOUND: (
-            f"{ticker} отсутствует в справочнике компаний, добавить не получится"
+        AddFavouriteResult.ADDED: t("handlers.company.fav.added", ticker=ticker),
+        AddFavouriteResult.ALREADY_EXISTS: t(
+            "handlers.company.fav.exists", ticker=ticker
+        ),
+        AddFavouriteResult.COMPANY_NOT_FOUND: t(
+            "handlers.company.fav.not_in_catalog", ticker=ticker
         ),
     }
     await callback.answer(
@@ -382,10 +388,14 @@ async def remove_from_favourites(
         description="удаление из избранного",
     )
     responses = {
-        RemoveFavouriteResult.REMOVED: f"{ticker} удалён из избранного",
-        RemoveFavouriteResult.NOT_IN_FAVOURITES: f"{ticker} не был в избранном",
-        RemoveFavouriteResult.COMPANY_NOT_FOUND: (
-            f"{ticker} отсутствует в справочнике компаний"
+        RemoveFavouriteResult.REMOVED: t(
+            "handlers.company.fav.removed", ticker=ticker
+        ),
+        RemoveFavouriteResult.NOT_IN_FAVOURITES: t(
+            "handlers.company.fav.not_in_list", ticker=ticker
+        ),
+        RemoveFavouriteResult.COMPANY_NOT_FOUND: t(
+            "handlers.company.fav.remove_not_in_catalog", ticker=ticker
         ),
     }
     await callback.answer(
